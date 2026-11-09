@@ -11,7 +11,10 @@
     "check:llm": "bun scripts/e2e-llm.ts",
     "build:modulo": "bun scripts/build-modulo.ts",
     "check:modulo": "bun scripts/build-modulo.ts --check",
-    "vercel-build": "node scripts/build-vercel.mjs"
+    "vercel-build": "node scripts/verify-vercel.mjs",
+    "build:vercel": "node scripts/build-vercel.mjs",
+    "check:vercel": "node scripts/build-vercel.mjs --check",
+    "verify": "bun run typecheck && bun run check:modulo && bun run check:vercel && bun test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

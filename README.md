@@ -81,9 +81,12 @@ Ver [.env.example](.env.example). Las claves viven solo en el entorno del backen
 
 ## Despliegue en Vercel (desde GitHub)
 
-1. En Vercel: *Add New → Project* y elige este repositorio (preset «Other»). El script `vercel-build` empaqueta la función con esbuild en `api/index.js` (un solo archivo con todas sus dependencias, ya que Vercel no reescribe los imports sin extensión de un proyecto `"type": "module"`); `api/index.js` no se versiona. `vercel.json` fija `outputDirectory: web`, reenvía `/api/*` a esa función (`maxDuration` 60 s) e incluye `fixtures/`, `agent/` y `src/knowledge/`.
-   - Comprobación local: `bun run vercel-build` y luego importar `api/index.js` con Node.
-   - Si Vercel responde que el patrón `api/index.js` no coincide con ninguna función (detecta `api/` antes de correr el build), la salida es versionar el bundle: `bun run vercel-build && git add -f api/index.js`.
+1. En Vercel: *Add New → Project* y elige este repositorio (preset «Other»). **La función es `api/index.js`, un bundle versionado** (un solo archivo con todas sus dependencias, generado con esbuild desde `src/vercel.ts`). Se versiona porque Vercel detecta las funciones de `api/` **antes** de correr el build: un archivo generado durante el build no cuenta (error real `unused_function`), y un `api/index.ts` suelto falla con `ERR_MODULE_NOT_FOUND` por los imports sin extensión de un proyecto `"type": "module"`.
+   - `vercel-build` **no reescribe nada**: solo comprueba que `api/index.js` exista (`scripts/verify-vercel.mjs`). El bundle versionado es la fuente.
+   - `vercel.json` fija `outputDirectory: web`, reenvía `/api/*` a esa función (`maxDuration` 60 s) e incluye `fixtures/`, `agent/` y `src/knowledge/`.
+   - **Después de cambiar algo en `src/`, `package.json` o `bun.lock`:** `bun run build:vercel && git add api/index.js` y haz commit del resultado.
+   - **Candado:** `bun run check:vercel` regenera el bundle en memoria y falla si difiere del versionado; también corre dentro de `bun test` (`test/vercel.test.ts`), así que un bundle desactualizado no pasa las pruebas. `bun run verify` encadena typecheck, `check:modulo`, `check:vercel` y las pruebas.
+   - El bundle es determinista: sin fechas, sin sourcemaps y con marcadores relativos a la raíz, así que no depende de la máquina ni del directorio desde el que se genere. Empieza con un comentario «Archivo generado por scripts/build-vercel.mjs — no editar a mano».
 2. Carga las variables de `.env.example` (mínimo: `STORAGE=supabase`, `AUTH=on`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, al menos una clave de modelo y `RESET_KEY`).
 3. Verifica con `GET /api/health`.
 

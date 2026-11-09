@@ -1,23 +1,28 @@
-// Empaqueta src/vercel.ts en api/index.js (ESM, Node, todo incluido). Corre igual con Node que con Bun:
-//   node scripts/build-vercel.mjs      → lo usa el script "vercel-build" (no exige Bun en el build de Vercel)
-import { build } from "esbuild"
-import { stat } from "node:fs/promises"
+// Bundle de la función de Vercel (api/index.js), que SE VERSIONA.
+//   node scripts/build-vercel.mjs           → regenera api/index.js
+//   node scripts/build-vercel.mjs --check   → no escribe; sale con 1 si lo versionado no coincide con las fuentes
+// Corre igual con Node que con Bun.
+import { readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { generarBundle } from "./bundle-vercel.mjs"
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const salida = path.join(raiz, "api/index.js")
+const destino = path.join(raiz, "api/index.js")
+const esperado = await generarBundle(raiz)
 
-await build({
-  entryPoints: [path.join(raiz, "src/vercel.ts")],
-  outfile: salida,
-  bundle: true,
-  platform: "node",
-  format: "esm",
-  target: "node20",
-  // Algunas dependencias son CommonJS y usan require() de módulos de Node dentro de un bundle ESM.
-  banner: { js: 'import { createRequire as __cr } from "node:module"; const require = __cr(import.meta.url);' },
-  legalComments: "none",
-  logLevel: "warning",
-})
-console.log(`api/index.js generado (${((await stat(salida)).size / 1e6).toFixed(1)} MB)`)
+if (process.argv.includes("--check")) {
+  const actual = await readFile(destino, "utf8").catch(() => null)
+  if (actual === null) {
+    console.error("api/index.js no existe. Ejecuta: bun run build:vercel && git add api/index.js")
+    process.exit(1)
+  }
+  if (actual !== esperado) {
+    console.error("api/index.js está desactualizado respecto a las fuentes (src/, package.json o bun.lock).\nEjecuta: bun run build:vercel && git add api/index.js")
+    process.exit(1)
+  }
+  console.log("api/index.js está alineado con las fuentes")
+} else {
+  await writeFile(destino, esperado)
+  console.log(`api/index.js generado (${((await stat(destino)).size / 1e6).toFixed(1)} MB). Recuerda: git add api/index.js`)
+}
