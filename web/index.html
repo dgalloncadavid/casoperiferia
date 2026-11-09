@@ -60,14 +60,18 @@
       </div>
       <p class="solo-lector" id="ayuda-fecha">Los soportes se evalúan a esta fecha. Al cambiarla se recalculan la bandeja, el caso y el reporte.</p>
     </section>
-    <section class="bloque" aria-labelledby="h-bandeja">
-      <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
-      <ul class="bandeja-lista" id="lista-casos"></ul>
+    <section class="bloque-lista" id="sec-casos">
+      <div class="lista-scroll" role="region" aria-labelledby="h-bandeja" tabindex="0">
+        <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
+        <ul class="bandeja-lista" id="lista-casos"></ul>
+      </div>
       <a class="btn btn-fantasma btn-todos" id="ver-todos" href="#/casos"><i data-lucide="table"></i> Ver todos los casos</a>
     </section>
-    <section class="bloque" aria-labelledby="h-conv">
-      <h2 id="h-conv"><i data-lucide="history"></i> Conversaciones</h2>
-      <div id="lista-conv"></div>
+    <section class="bloque-lista" id="sec-conv">
+      <div class="lista-scroll" role="region" aria-labelledby="h-conv" tabindex="0">
+        <h2 id="h-conv"><i data-lucide="history"></i> Conversaciones</h2>
+        <div id="lista-conv"></div>
+      </div>
     </section>
     <section class="bloque pie-bandeja" aria-label="Reporte">
       <button type="button" class="btn btn-reporte" id="ver-reporte"><i data-lucide="clipboard-list"></i> Reporte de faltantes y costo</button>
@@ -79,6 +83,9 @@
       <h2 id="h-chat"><i data-lucide="message-square"></i> Conversación</h2>
       <span class="meta" id="caso-foco"></span>
       <button type="button" class="btn" id="abrir-detalle" hidden aria-controls="panel-detalle"><i data-lucide="panel-right-open"></i> Detalle del caso</button>
+    </div>
+    <div class="chat-sub" id="chat-sub" hidden>
+      <button type="button" class="btn btn-fantasma" id="filtro-conv" aria-pressed="false"></button>
     </div>
     <div id="aviso-chat" class="aviso" role="status" hidden></div>
     <div id="mensajes" role="log" aria-live="polite" aria-label="Mensajes" tabindex="0"></div>

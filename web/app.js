@@ -43,7 +43,7 @@
   const estado = {
     fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, vista: "caso", sessionId: null, ocupado: false,
     auth: { habilitada: false, cliente: null, usuario: null }, soloLectura: false, sesiones: null,
-    detalleAbierto: false, bandejaAbierta: false, overlay: null, sugerido: "",
+    detalleAbierto: false, bandejaAbierta: false, filtroConv: null, vistaSesion: null, overlay: null, sugerido: "",
     ruta: "asistente", resumen: null, resumenEstado: "cargando", filtro: { texto: "", estado: "" }, orden: { col: "cliente", dir: "asc" },
     hoja: { abierta: false, caso: null, pestana: "campos", datos: null },
   };
@@ -191,6 +191,17 @@
     if (nuevo) nuevo.focus({ preventScroll: true });
   }
 
+  const plural = (n, uno, varios) => n + " " + (n === 1 ? uno : varios);
+  /** Resumen corto de una línea: «2 por confirmar · 1 soporte vencido». */
+  function resumenCorto(c) {
+    const partes = [];
+    if (c.porConfirmar) partes.push(c.porConfirmar + " por confirmar");
+    const sp = c.soportesProblema || { vencidos: 0, faltantes: 0 };
+    if (sp.vencidos) partes.push(plural(sp.vencidos, "soporte vencido", "soportes vencidos"));
+    if (sp.faltantes) partes.push(plural(sp.faltantes, "soporte faltante", "soportes faltantes"));
+    if (!partes.length && c.procesado) partes.push("Sin pendientes");
+    return partes.join(" · ");
+  }
   function renderBandeja() {
     const ul = $("lista-casos");
     ul.removeAttribute("aria-busy");
@@ -202,14 +213,16 @@
       const b = el("button", "caso-fila borde-" + info.clase);
       b.type = "button";
       b.dataset.caso = c.caso;
+      b.title = c.cliente;
       if (c.caso === estado.seleccion && estado.vista === "caso") b.setAttribute("aria-current", "true");
-      b.appendChild(el("span", "cliente", c.cliente));
+      const l1 = el("span", "fila-1");
+      l1.appendChild(el("span", "cliente trunc", c.cliente));
       const e = el("span", "estado estado-" + info.clase);
       e.append(icono(info.icono), document.createTextNode(c.estadoTexto));
-      b.appendChild(e);
-      b.appendChild(el("span", "meta", [PAISES[c.pais] || c.pais, FORMATOS[c.formato] || c.formato].filter(Boolean).join(" · ")));
-      if (c.motivos.length) b.appendChild(el("span", "meta", c.motivos.join(" · ")));
-      b.addEventListener("click", () => seleccionar(c.caso, true));
+      l1.appendChild(e);
+      b.appendChild(l1);
+      b.appendChild(el("span", "meta trunc", [PAISES[c.pais] || c.pais, FORMATOS[c.formato] || c.formato, resumenCorto(c)].filter(Boolean).join(" · ")));
+      b.addEventListener("click", () => seleccionar(c.caso, true, true, true));
       li.appendChild(b);
       ul.appendChild(li);
     }
@@ -226,13 +239,8 @@
     botones[(i + (e.key === "ArrowDown" ? 1 : -1) + botones.length) % botones.length].focus();
   });
 
-  async function cargarBandeja() {
-    const r = await api("/api/casos?" + q());
-    if (!r.ok) { $("lista-casos").textContent = ""; $("lista-casos").removeAttribute("aria-busy"); return mostrarError(r.data.error || "No pude cargar la bandeja."); }
-    estado.casos = r.data.casos;
-    renderBandeja();
-    renderConversaciones();
-  }
+  /** Bandeja y tabla salen de la misma fuente: /api/casos/resumen. */
+  const cargarBandeja = () => cargarResumen(true);
 
   // ---------- panel del caso ----------
   function limpiarPrincipal() { const p = $("detalle-contenido"); p.textContent = ""; return p; }
@@ -244,14 +252,17 @@
   }
 
   /** Elegir un caso abre su detalle y deja el chat enfocado en él. No manda nada al modelo. */
-  async function seleccionar(caso, mover, abrir) {
+  async function seleccionar(caso, mover, abrir, restaurar) {
     if (estado.ruta === "casos") navegar("#/");
     const abrirPanel = abrir !== false;
     if (estado.bandejaAbierta) cerrarBandeja();
     estado.seleccion = caso;
     estado.vista = "caso";
+    if (estado.filtroConv && estado.filtroConv !== caso) estado.filtroConv = null;
     renderBandeja();
     if (abrirPanel) abrirDetalle(document.activeElement);
+    if (restaurar) await restaurarConversacion(caso);
+    renderConversaciones();
     await cargarCaso(mover && abrirPanel);
     enfocarChatEnCaso();
   }
@@ -638,7 +649,7 @@
     for (const c of d.casos) {
       const tr = el("tr");
       const celda = (txt, clase) => tr.appendChild(el("td", clase || "", txt));
-      const tc = el("td"); const bt = el("button", "enlace"); bt.type = "button"; bt.textContent = c.cliente; bt.addEventListener("click", () => seleccionar(c.caso, true)); tc.appendChild(bt); tr.appendChild(tc);
+      const tc = el("td"); const bt = el("button", "enlace"); bt.type = "button"; bt.textContent = c.cliente; bt.addEventListener("click", () => seleccionar(c.caso, true, true, true)); tc.appendChild(bt); tr.appendChild(tc);
       celda(c.estadoTexto);
       celda(c.faltantes.join(", ") || "—");
       celda(c.porConfirmar.join(", ") || "—");
@@ -865,10 +876,19 @@
     const cuerpo = $("casos-cuerpo");
     if (!silencioso || !estado.resumen) { estado.resumenEstado = "cargando"; renderTabla(); }
     const r = await api("/api/casos/resumen?" + q());
-    if (!r.ok) { estado.resumenEstado = "error"; renderTabla(); return; }
+    if (!r.ok) {
+      $("lista-casos").removeAttribute("aria-busy");
+      if (!silencioso || !estado.resumen) { estado.resumenEstado = "error"; renderTabla(); }
+      else { estado.resumenEstado = "ok"; renderTabla(); }
+      if (!estado.resumen) mostrarError(r.data.error || "No pude cargar la bandeja.");
+      return;
+    }
     estado.resumen = r.data.casos;
+    estado.casos = estado.resumen;
     estado.resumenEstado = "ok";
+    renderBandeja();
     renderTabla();
+    renderConversaciones();
     cuerpo.removeAttribute("aria-busy");
   }
 
@@ -1142,15 +1162,14 @@
     if (!caso) return;
     cerrarHoja();
     navegar("#/");
-    await seleccionar(caso, false, false);   // el caso queda en foco en el chat; no se envía nada al modelo
-    $("entrada").focus();
+    await seleccionar(caso, false, false, true);   // el caso queda en foco en el chat (y se restaura su última conversación); no se envía nada al modelo
+    if ($("entrada").disabled) { $("h-chat").tabIndex = -1; $("h-chat").focus(); } else $("entrada").focus();
   });
 
   // ---------- fecha de referencia ----------
-  async function refrescarListas() { await Promise.all([cargarBandeja(), cargarSesiones()]); }
+  async function refrescarListas() { await Promise.all([cargarResumen(true), cargarSesiones()]); }
   async function refrescar() {
     await refrescarListas();
-    if (estado.ruta === "casos") await cargarResumen(true);
     if (estado.vista === "reporte") await verReporte();
     else if (estado.seleccion) await cargarCaso(false);
   }
@@ -1169,13 +1188,17 @@
   $("ver-reporte").addEventListener("click", verReporte);
   $("form-chat").addEventListener("submit", (e) => { e.preventDefault(); enviar($("entrada").value, false); });
   $("entrada").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar($("entrada").value, false); } });
-  function conversacionNueva() {
+  async function conversacionNueva(opc) {
     // El historial no se borra: la conversación anterior sigue en la lista del Historial.
-    estado.sessionId = nuevoId(); almacen("set", claveSesion(), estado.sessionId); mostrarAviso(""); iniciarChat();
+    estado.sessionId = nuevoId(); almacen("set", claveSesion(), estado.sessionId); mostrarAviso("");
+    await iniciarChat();
+    enfocarChatEnCaso();   // el caso en foco se conserva: la conversación nueva parte limpia, para ese mismo caso
+    renderConversaciones();
+    if (opc && opc.sinFoco) return;
     if (estado.bandejaAbierta) cerrarBandeja();
     $("entrada").focus();
   }
-  $("nueva").addEventListener("click", conversacionNueva);
+  $("nueva").addEventListener("click", () => conversacionNueva());
 
   // ---------- ingreso y sesión ----------
   const claveSesion = () => "sessionId" + (estado.auth.usuario ? ":" + estado.auth.usuario.id : "");
@@ -1216,7 +1239,7 @@
     if (estado.detalleAbierto) cerrarDetalle();
     if (estado.bandejaAbierta) cerrarBandeja();
     if (estado.auth.cliente) await estado.auth.cliente.auth.signOut();
-    estado.auth.usuario = null; estado.casos = []; estado.sesiones = null; estado.seleccion = null; estado.detalle = null; estado.vista = "caso"; $("caso-foco").textContent = "";
+    estado.auth.usuario = null; estado.filtroConv = null; estado.vistaSesion = null; estado.resumen = null; estado.casos = []; estado.sesiones = null; estado.seleccion = null; estado.detalle = null; estado.vista = "caso"; $("caso-foco").textContent = "";
     $("mensajes").textContent = ""; limpiarPrincipal();
     mostrarIngreso("");
     anunciar("Cerraste sesión.");
@@ -1265,27 +1288,81 @@
       iconos();
       return;
     }
+    const visibles = estado.filtroConv ? sesiones.filter((x) => x.caso === estado.filtroConv) : sesiones;
+    if (visibles.length === 0) {
+      const v = el("div", "vacio-amable");
+      v.appendChild(icono("message-square"));
+      v.appendChild(el("p", "", "No tienes conversaciones de este caso."));
+      cont.appendChild(v);
+      iconos();
+      actualizarFiltroConv();
+      return;
+    }
+    const idActivo = estado.soloLectura ? estado.vistaSesion : estado.sessionId;
     const ul = el("ul", "lista-hist");
-    for (const se of sesiones) {
+    for (const se of visibles) {
       const li = el("li");
       const b = el("button", "hist-item");
       b.type = "button";
       b.dataset.id = se.id;
-      if (se.id === estado.sessionId) b.setAttribute("aria-current", "true");
-      b.appendChild(el("span", "hist-fecha", se.fechaColombia));
+      if (se.id === idActivo) b.setAttribute("aria-current", "true");
       const cliente = (estado.casos.find((c) => c.caso === se.caso) || {}).cliente;
-      b.appendChild(el("span", "meta", se.caso ? (cliente || se.caso) : "Sin caso todavía"));
-      b.appendChild(estadoSesion(se.estado, se.estadoTexto || ESTADOS_SESION[se.estado] || "En curso"));
+      const nombre = se.caso ? (cliente || se.caso) : "Sin caso todavía";
+      b.title = se.fechaColombia + " · " + nombre;
+      const l1 = el("span", "fila-1");
+      l1.appendChild(el("span", "hist-fecha trunc", se.fechaColombia));
+      l1.appendChild(estadoSesion(se.estado, se.estadoTexto || ESTADOS_SESION[se.estado] || "En curso"));
+      b.appendChild(l1);
+      b.appendChild(el("span", "meta trunc", nombre));
       b.appendChild(el("span", "solo-lector", se.estado === "en_curso" ? ". Se retoma." : ". Solo lectura."));
       b.addEventListener("click", () => abrirConversacion(se));
       li.appendChild(b); ul.appendChild(li);
     }
     cont.appendChild(ul);
     devolverFoco(cont, "id", focoConv);
+    actualizarFiltroConv();
   }
 
+  // ---------- conversaciones de un caso: restaurar la última y filtrar el historial ----------
+  const sesionesDeCaso = (caso) => (estado.sesiones || []).filter((x) => x.caso === caso);
+
+  /** Al abrir un caso: carga su conversación más reciente; si no tiene ninguna, deja el saludo (o uno limpio si el chat era de otro caso). */
+  async function restaurarConversacion(caso) {
+    if (estado.ocupado || !estado.sesiones) return;
+    const idMostrado = estado.soloLectura ? estado.vistaSesion : estado.sessionId;
+    const mostrada = estado.sesiones.find((x) => x.id === idMostrado);
+    if (mostrada && mostrada.caso === caso) return;   // ya está en pantalla
+    const propias = sesionesDeCaso(caso);
+    if (propias.length) { await abrirConversacion(propias[0], { sinCaso: true, sinFoco: true }); return; }
+    if (mostrada && mostrada.caso) await conversacionNueva({ sinFoco: true });   // el chat era de otro caso: saludo limpio
+  }
+
+  /** Enlace fantasma bajo el encabezado del chat: «Ver conversaciones de este caso (N)» y su forma de quitar el filtro. */
+  function actualizarFiltroConv() {
+    const caja = $("chat-sub"), b = $("filtro-conv");
+    const caso = estado.vista === "caso" ? estado.seleccion : null;
+    const n = caso ? sesionesDeCaso(caso).length : 0;
+    const activo = Boolean(estado.filtroConv);
+    caja.hidden = !(caso && (n > 1 || activo));
+    if (caja.hidden) return;
+    const texto = activo ? "Quitar el filtro de conversaciones" : "Ver conversaciones de este caso (" + n + ")";
+    b.setAttribute("aria-pressed", activo ? "true" : "false");
+    if (b.dataset.texto === texto) return;
+    b.dataset.texto = texto;
+    b.textContent = "";
+    b.append(icono(activo ? "filter-x" : "list-filter"), document.createTextNode(texto));
+    iconos();
+  }
+  $("filtro-conv").addEventListener("click", () => {
+    estado.filtroConv = estado.filtroConv ? null : estado.seleccion;
+    renderConversaciones();
+    if (estado.filtroConv && mqBandeja.matches && !estado.bandejaAbierta) abrirBandeja();
+    anunciar(estado.filtroConv ? "Conversaciones filtradas por este caso." : "Filtro de conversaciones quitado.");
+  });
+
   /** Abre la conversación en el chat central: en lectura si terminó, retomándola si sigue en curso. */
-  async function abrirConversacion(se) {
+  async function abrirConversacion(se, opc) {
+    opc = opc || {};
     if (estado.ruta === "casos") navegar("#/");
     const r = await api("/api/sessions/" + encodeURIComponent(se.id));
     if (!r.ok) { estado.sesiones = null; renderConversaciones(); cargarSesiones(); return; }
@@ -1293,12 +1370,12 @@
     $("mensajes").textContent = "";
     const terminada = r.data.resumen && r.data.resumen.estado !== "en_curso";
     if (!terminada) { estado.sessionId = se.id; almacen("set", claveSesion(), se.id); modoLectura(false); }
-    else modoLectura(true, se.fechaColombia);
-    if (r.data.resumen && r.data.resumen.caso) await seleccionar(r.data.resumen.caso, false, false);
+    else { estado.vistaSesion = se.id; modoLectura(true, se.fechaColombia); }
+    if (!opc.sinCaso && r.data.resumen && r.data.resumen.caso) await seleccionar(r.data.resumen.caso, false, false, false);
     r.data.historial.forEach((m, i) => pintarMensaje(m, i === r.data.historial.length - 1 && Boolean(r.data.pendiente)));
     renderConversaciones();
     anunciar(terminada ? "Conversación abierta en modo lectura." : "Conversación retomada.");
-    $("h-chat").tabIndex = -1; $("h-chat").focus();
+    if (!opc.sinFoco) { $("h-chat").tabIndex = -1; $("h-chat").focus(); }
   }
 
   // ---------- arranque ----------

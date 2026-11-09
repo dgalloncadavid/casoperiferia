@@ -132913,7 +132913,7 @@ async function resumenCasos(ctx, fecha) {
   for (const caso of await listarCasos(ctx)) {
     const v = await vistaCaso(caso, ctx, fecha);
     if (!v.ok) {
-      filas.push({ caso, cliente: caso, pais: "", formato: "", estado: "decision", estadoTexto: "Necesita tu decisi\xF3n", procesado: false, camposLlenos: null, camposTotal: 0, porConfirmar: null, soportesProblema: { total: 0, nombres: [] }, ultimaActividad: null, fechaColombia: null });
+      filas.push({ caso, cliente: caso, pais: "", formato: "", estado: "decision", estadoTexto: "Necesita tu decisi\xF3n", procesado: false, camposLlenos: null, camposTotal: 0, porConfirmar: null, soportesProblema: { total: 0, nombres: [], vencidos: 0, faltantes: 0 }, ultimaActividad: null, fechaColombia: null });
       continue;
     }
     const d = v.data;
@@ -132929,7 +132929,7 @@ async function resumenCasos(ctx, fecha) {
       camposLlenos: d.procesado ? d.campos.filter((c) => c.estado === "lleno").length : null,
       camposTotal: d.totalCampos,
       porConfirmar: d.procesado ? d.pendientes.length : null,
-      soportesProblema: { total: problemas.length, nombres: problemas.map((s) => s.nombre) },
+      soportesProblema: { total: problemas.length, nombres: problemas.map((s) => s.nombre), vencidos: problemas.filter((s) => s.estado !== "ausente").length, faltantes: problemas.filter((s) => s.estado === "ausente").length },
       ultimaActividad: d.ultimaActividad,
       fechaColombia: d.ultimaActividad ? fechaColombia(d.ultimaActividad) : null
     });

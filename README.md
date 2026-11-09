@@ -19,7 +19,7 @@ bun run dev              # http://localhost:3000  (front + API)
 
 ## Pantalla
 
-Chat al centro; a la izquierda la bandeja (fecha de referencia, casos con «Ver todos los casos», conversaciones y el reporte fijo al pie); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). La ruta `#/casos` muestra **«Todos los casos»**: una tabla ordenable con búsqueda por cliente y filtro por estado, y un detalle con pestañas (Campos, Soportes, Decisiones) y «Abrir en el asistente»; con 390 px pasa a filas apiladas. Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
+Chat al centro; a la izquierda la bandeja compacta (fecha de referencia; casos y conversaciones al 50% del alto, cada una con su scroll y en dos líneas por ítem; «Ver todos los casos» y el reporte fijos); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). La ruta `#/casos` muestra **«Todos los casos»**: una tabla ordenable con búsqueda por cliente y filtro por estado, y un detalle con pestañas (Campos, Soportes, Decisiones) y «Abrir en el asistente»; con 390 px pasa a filas apiladas. Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
 
 ## Sistema visual
 
@@ -33,7 +33,7 @@ El acceso es con **usuarios fijos** creados en Supabase Auth (no hay registro p�
 - El front recibe `SUPABASE_URL` y la clave **anon** por `GET /api/config`; la service role nunca sale del servidor.
 - Las conversaciones (`sessions`) y los logs (`logs`) guardan el `user_id` del token y el servidor **siempre filtra** por él: un usuario no ve ni retoma las conversaciones de otro. **Los casos y sus paquetes también son por usuario** (los archivos van bajo `usuarios/<id>/`): el evaluador empieza limpio y no puede descargar los paquetes de Sofía. Migración: `supabase/migrations/003_user_id.sql`.
 - `/api/paquetes/*` y las descargas exigen token (el front descarga con `fetch` y `Authorization`).
-- **Conversaciones** (lateral izquierdo): las tuyas, las más recientes primero, con hora de Colombia, caso y estado (en curso, listo, bloqueado o incompleto). Una terminada se abre en solo lectura en el chat; una en curso se retoma. «Sesión nueva» no borra nada.
+- **Conversaciones** (lateral izquierdo): las tuyas, las más recientes primero, con hora de Colombia, caso y estado (en curso, listo, bloqueado o incompleto). Una terminada se abre en solo lectura en el chat; una en curso se retoma. **Al abrir un caso se carga su conversación más reciente**; si hay más de una, «Ver conversaciones de este caso (N)» filtra el historial. «Sesión nueva» no borra nada.
 - Las pruebas fuerzan `AUTH=off` (`test/setup.ts`) aunque tu `.env` tenga `AUTH=on`.
 
 ## Módulo reutilizable (`modulo/`)

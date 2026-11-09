@@ -24,18 +24,39 @@ const procesarTodos = async () => {
 }
 const porCaso = async (fecha = FECHA) => Object.fromEntries((await resumenCasos(ctx(), fecha)).map((f) => [f.caso, f]))
 
+describe("una sola fuente de estado", () => {
+  test("bandeja, resumen y detalle dicen lo mismo del estado de cada caso, antes y después de procesar y decidir", async () => {
+    const comparar = async () => {
+      const b = (await (await app.request(`/api/casos?fecha=${FECHA}`)).json()) as { casos: { caso: string; estado: string; estadoTexto: string }[] }
+      const r = (await (await app.request(`/api/casos/resumen?fecha=${FECHA}`)).json()) as { casos: { caso: string; estado: string; estadoTexto: string }[] }
+      expect(b.casos.map((x) => [x.caso, x.estado, x.estadoTexto])).toEqual(r.casos.map((x) => [x.caso, x.estado, x.estadoTexto]))
+      for (const f of r.casos) {
+        const d = (await (await app.request(`/api/casos/${f.caso}?fecha=${FECHA}`)).json()) as { estado: string; estadoTexto: string }
+        expect([d.estado, d.estadoTexto]).toEqual([f.estado, f.estadoTexto])
+      }
+      return r.casos
+    }
+    expect((await comparar()).map((x) => x.estado)).toEqual(["nuevo", "nuevo", "nuevo", "nuevo"])
+    await procesarTodos()
+    expect((await comparar()).map((x) => x.estado)).toEqual(["listo", "decision", "decision", "decision"])
+    await guardarDecision("pa-logistica-istmo", "Ingresos anuales", "confirmado", ctx())
+    await comparar()
+  })
+})
+
 describe("resumen de casos (vista en tabla)", () => {
   test("sin procesar: una fila por caso con lo que se sabe de la solicitud y nada de lo demás", async () => {
     const r = await porCaso()
     expect(Object.keys(r)).toEqual(CASOS)
     expect(r["ec-corp-andina"]).toMatchObject({ cliente: "Corporación Andina de Servicios S.A.", pais: "EC", formato: "pdf", estado: "nuevo", estadoTexto: "Nuevo", procesado: false, camposTotal: 15, camposLlenos: null, porConfirmar: null, ultimaActividad: null, fechaColombia: null })
-    expect(r["hn-agroexport-sula"]?.soportesProblema).toEqual({ total: 1, nombres: ["certificado de aportes parafiscales"] }) // los soportes se evalúan aunque no esté procesado
+    expect(r["hn-agroexport-sula"]?.soportesProblema).toEqual({ total: 1, nombres: ["certificado de aportes parafiscales"], vencidos: 1, faltantes: 0 }) // los soportes se evalúan aunque no esté procesado
   })
 
   test("procesados: campos llenos sobre el total, por confirmar y soportes con problema (fecha del reto)", async () => {
     await procesarTodos()
     const r = await porCaso()
     expect(r["co-industrias-delta"]).toMatchObject({ estado: "listo", camposLlenos: 17, camposTotal: 17, porConfirmar: 0, soportesProblema: { total: 0, nombres: [] } })
+    expect(r["ec-corp-andina"]?.soportesProblema).toMatchObject({ vencidos: 0, faltantes: 1 })
     expect(r["ec-corp-andina"]).toMatchObject({ estado: "decision", camposLlenos: 13, camposTotal: 15, porConfirmar: 1, soportesProblema: { total: 1, nombres: ["certificado de cumplimiento tributario"] } })
     expect(r["hn-agroexport-sula"]).toMatchObject({ camposLlenos: 8, camposTotal: 11, porConfirmar: 2, soportesProblema: { total: 1, nombres: ["certificado de aportes parafiscales"] } })
     expect(r["pa-logistica-istmo"]).toMatchObject({ formato: "portal", camposLlenos: 8, camposTotal: 9, porConfirmar: 1, soportesProblema: { total: 0, nombres: [] } })
