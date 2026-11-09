@@ -33,7 +33,7 @@ interface Esperado {
 }
 const ESPERADOS: Esperado[] = [
   { caso: "co-industrias-delta", campos: 17, porConfirmar: [], faltantes: [], listo: true, estadoFirma: "listo" },
-  { caso: "ec-corp-andina", campos: 15, porConfirmar: ["RUC"], faltantes: ["Número de contribuyente especial"], listo: false, estadoFirma: "bloqueado", bloqueaPor: "certificado_cumplimiento_tributario" },
+  { caso: "ec-corp-andina", campos: 15, porConfirmar: ["RUC"], faltantes: ["Número de contribuyente especial"], listo: false, estadoFirma: "bloqueado", bloqueaPor: "cumplimiento tributario" },
   { caso: "hn-agroexport-sula", campos: 11, porConfirmar: ["RTN", "Ingresos anuales"], faltantes: ["Referencias comerciales"], listo: false, estadoFirma: "bloqueado", bloqueaPor: "parafiscales" },
   { caso: "pa-logistica-istmo", campos: 9, porConfirmar: ["RUC"], faltantes: [], listo: false, estadoFirma: "no_aplica" },
 ]
@@ -80,7 +80,7 @@ async function main(): Promise<void> {
     check("el borrador de correo no contiene datos bancarios", !/03100012345|COLOCOBM|Bancolombia/.test(correo))
   }
   const co = resumenes[0] as ResumenCaso
-  check("CO: alerta amarilla de Cámara de Comercio (quedan 27 días)", (co.alertas ?? []).some((a) => a.startsWith("camara_comercio") && a.includes("amarilla")), JSON.stringify(co.alertas))
+  check("CO: alerta amarilla de Cámara de Comercio (quedan 27 días)", (co.alertas ?? []).some((a) => a.startsWith("Cámara de Comercio") && a.includes("amarilla")), JSON.stringify(co.alertas))
   const ec = resumenes[1] as ResumenCaso
   check("EC: soportes de otro país solo advierten, no bloquean", (ec.advertencias ?? []).length > 0 && !(ec.bloqueadores ?? []).some((b) => b.includes("emitido en")))
   const pa = resumenes[3] as ResumenCaso

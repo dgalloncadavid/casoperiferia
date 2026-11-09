@@ -46,6 +46,12 @@ Ver [.env.example](.env.example). Las claves viven solo en el entorno del backen
 |---|---|---|
 | POST | `/api/chat` | `{sessionId, message, confirm?}` → `{reply, toolCalls, needsConfirmation, modo, aviso?, fechaReferencia}` |
 | GET | `/api/sessions/:id` | Historial de la sesión |
+| GET | `/api/casos?fecha=` | Bandeja: estado de cada caso a esa fecha |
+| GET | `/api/casos/:caso?fecha=` | Panel del caso: campos con trazabilidad, soportes, decisiones, archivos y costo |
+| POST | `/api/casos/:caso/procesar` | Procesa el caso sin modelo (no gasta tokens) |
+| POST | `/api/casos/:caso/decisiones` | Confirmar un valor o dejarlo para revisar con el cliente |
+| POST | `/api/casos/:caso/proponer-envio` | Deja pendiente la confirmación del envío en la sesión |
+| GET | `/api/reporte?fecha=` | Faltantes entre todos los casos y costo por caso |
 | GET | `/api/health` | `{ok, provider, model, cadena, modo, fechaReferencia, storage}` (sin claves) |
 | GET | `/api/paquetes/:caso` y `/api/paquetes/:caso/<archivo>` | Lista y descarga del paquete (ruta validada) |
 | POST | `/api/reset` | Cabecera `x-reset-key`. Borra salidas, logs y sesiones; conserva el consumo diario |

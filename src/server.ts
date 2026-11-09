@@ -1,9 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto"
 import { Hono, type Context } from "hono"
-import { manejarChat, cargarSesion, type Dependencias } from "./agent/ciclo"
+import { manejarChat, cargarSesion, proponerEnvioDesdePanel, type Dependencias } from "./agent/ciclo"
 import { config } from "./config"
 import { CASO_RE, listarCasos } from "./core/fixtures"
-import { resolverFecha } from "./core/util"
+import { fechaValida, resolverFecha } from "./core/util"
+import { processCaso } from "./process"
+import { bandeja, guardarDecision, reporte, vistaCaso } from "./core/vista"
 import { crearCadena, proveedoresConfigurados } from "./llm/cadena"
 import { getStorage } from "./storage"
 
@@ -17,7 +19,7 @@ const TIPOS: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 /** Archivos internos que no se ofrecen en la descarga. */
-const INTERNOS = new Set(["log.jsonl", "estado.json"])
+const INTERNOS = new Set(["log.jsonl", "estado.json", "decisiones.json", "costo.json"])
 
 const directorio = () => process.env.APP_DIR ?? process.cwd()
 
@@ -70,9 +72,25 @@ app.get("/api/health", (c) => {
   })
 })
 
+/** Límite de peticiones por IP (compartido por el chat y las acciones del panel). */
+async function limitar(c: Context): Promise<Response | null> {
+  const golpes = await dependencias().storage.rateHit(`ip:${huella(ipDe(c))}`, 60).catch(() => 0)
+  if (golpes <= config.rateLimitPerMin()) return null
+  c.header("Retry-After", "60")
+  return c.json({ error: `Demasiados mensajes: el límite es ${config.rateLimitPerMin()} por minuto. Espera un momento.` }, 429)
+}
+
+/** Fecha de referencia pedida (consulta o cuerpo) o la predeterminada; null si no es válida. */
+function fechaPedida(pedida: string | undefined | null): string | null {
+  if (pedida) return fechaValida(pedida) ? pedida : null
+  return resolverFecha({ directory: directorio(), sessionId: "panel" })
+}
+const ctxPanel = () => ({ directory: directorio(), sessionId: "panel" })
+const FECHA_INVALIDA = { error: "La fecha de referencia no es válida (usa AAAA-MM-DD)." }
+
 app.post("/api/chat", async (c) => {
   const d = dependencias()
-  let cuerpo: { sessionId?: unknown; message?: unknown; confirm?: unknown }
+  let cuerpo: { sessionId?: unknown; message?: unknown; confirm?: unknown; fecha?: unknown }
   try {
     cuerpo = (await c.req.json()) as typeof cuerpo
   } catch {
@@ -87,14 +105,13 @@ app.post("/api/chat", async (c) => {
     return c.json({ error: `El mensaje es demasiado largo (máximo ${config.maxMessageChars()} caracteres).` }, 413)
   }
 
-  const golpes = await d.storage.rateHit(`ip:${huella(ipDe(c))}`, 60).catch(() => 0)
-  if (golpes > config.rateLimitPerMin()) {
-    c.header("Retry-After", "60")
-    return c.json({ error: `Demasiados mensajes: el límite es ${config.rateLimitPerMin()} por minuto. Espera un momento.` }, 429)
-  }
+  const fecha = typeof cuerpo.fecha === "string" && cuerpo.fecha !== "" ? cuerpo.fecha : undefined
+  if (fecha && !fechaValida(fecha)) return c.json({ error: "La fecha de referencia no es válida (usa AAAA-MM-DD)." }, 400)
+  const limite = await limitar(c)
+  if (limite) return limite
 
   try {
-    return c.json(await manejarChat(d, { sessionId, message, confirm }))
+    return c.json(await manejarChat(d, { sessionId, message, confirm, fecha }))
   } catch {
     return c.json({ error: "Ocurrió un error inesperado procesando el mensaje. La sesión sigue activa; intenta de nuevo." }, 500)
   }
@@ -145,6 +162,69 @@ app.get("/api/paquetes/:caso/*", async (c) => {
       "x-content-type-options": "nosniff",
     },
   })
+})
+
+app.get("/api/casos", async (c) => {
+  const fecha = fechaPedida(c.req.query("fecha"))
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  return c.json({ fechaReferencia: fecha, casos: await bandeja(ctxPanel(), fecha) })
+})
+
+app.get("/api/casos/:caso", async (c) => {
+  const caso = c.req.param("caso")
+  const fecha = fechaPedida(c.req.query("fecha"))
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  if (!(await casoValido(caso))) return c.json({ error: "No encontré ese caso." }, 404)
+  const v = await vistaCaso(caso, ctxPanel(), fecha)
+  return v.ok ? c.json(v.data) : c.json({ error: v.error }, 422)
+})
+
+app.post("/api/casos/:caso/procesar", async (c) => {
+  const caso = c.req.param("caso")
+  const cuerpo = (await c.req.json().catch(() => ({}))) as { fecha?: unknown }
+  const fecha = fechaPedida(typeof cuerpo.fecha === "string" ? cuerpo.fecha : undefined)
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  if (!(await casoValido(caso))) return c.json({ error: "No encontré ese caso." }, 404)
+  const limite = await limitar(c)
+  if (limite) return limite
+  // Sin modelo: las mismas herramientas, en orden. No gasta tokens.
+  const resumen = await processCaso(caso, { ...ctxPanel(), fechaReferencia: fecha })
+  const v = await vistaCaso(caso, ctxPanel(), fecha)
+  return c.json({ resumen: { ok: resumen.ok, avisos: resumen.avisos }, caso: v.ok ? v.data : null })
+})
+
+app.post("/api/casos/:caso/decisiones", async (c) => {
+  const caso = c.req.param("caso")
+  const cuerpo = (await c.req.json().catch(() => ({}))) as { campo?: unknown; decision?: unknown; fecha?: unknown }
+  const fecha = fechaPedida(typeof cuerpo.fecha === "string" ? cuerpo.fecha : undefined)
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  if (!(await casoValido(caso))) return c.json({ error: "No encontré ese caso." }, 404)
+  if (typeof cuerpo.campo !== "string" || (cuerpo.decision !== "confirmado" && cuerpo.decision !== "revisar")) {
+    return c.json({ error: "Indica el campo y la decisión («confirmado» o «revisar»)." }, 400)
+  }
+  const r = await guardarDecision(caso, cuerpo.campo, cuerpo.decision, ctxPanel())
+  if (!r.ok) return c.json({ error: "Ese valor ya no está pendiente de confirmación." }, 422)
+  const v = await vistaCaso(caso, ctxPanel(), fecha)
+  return c.json({ caso: v.ok ? v.data : null })
+})
+
+app.post("/api/casos/:caso/proponer-envio", async (c) => {
+  const caso = c.req.param("caso")
+  const cuerpo = (await c.req.json().catch(() => ({}))) as { sessionId?: unknown; fecha?: unknown }
+  const fecha = fechaPedida(typeof cuerpo.fecha === "string" ? cuerpo.fecha : undefined)
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  if (!(await casoValido(caso))) return c.json({ error: "No encontré ese caso." }, 404)
+  if (typeof cuerpo.sessionId !== "string" || !SESION_RE.test(cuerpo.sessionId)) return c.json({ error: "sessionId inválido" }, 400)
+  const limite = await limitar(c)
+  if (limite) return limite
+  const r = await proponerEnvioDesdePanel(dependencias(), cuerpo.sessionId, caso, fecha)
+  return r.ok ? c.json(r.respuesta) : c.json({ error: r.error }, 422)
+})
+
+app.get("/api/reporte", async (c) => {
+  const fecha = fechaPedida(c.req.query("fecha"))
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  return c.json(await reporte(ctxPanel(), fecha))
 })
 
 app.post("/api/reset", async (c) => {

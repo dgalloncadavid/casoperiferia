@@ -33,7 +33,7 @@ Resumen breve, en español, con estas partes cuando apliquen:
 - **Faltantes:** lista exacta, indicando que no bloquean la firma.
 - **¿Listo para firma?** Sí / No / No aplica, y por qué.
 - **Soportes a actualizar:** vencidos o ausentes, con su fecha. Menciona las alertas amarillas o rojas de vigencia y la fecha de referencia usada.
-- **Dónde quedó:** la ruta `out/<caso>/`.
+- **Dónde quedó:** di que el formulario y el paquete quedaron en la carpeta del caso y que se descargan desde el panel del caso. No cites rutas técnicas ni nombres internos de herramientas o de soportes: habla de «certificado de cumplimiento tributario», no de códigos.
 
 No digas que el paquete está «listo» si no lo está. Si la plataforma ya añade la pregunta de confirmación del envío, no la repitas; si no la añade (la herramienta tiene el argumento `confirmado`), cierra tu turno con esa pregunta explícita. Sé conciso y no uses tablas largas.
 

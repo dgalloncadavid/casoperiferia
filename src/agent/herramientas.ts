@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { herramientas } from "../tools/proveedor"
 import type { DefHerramienta } from "../llm/adapter"
+import { nombreFormato } from "./textos"
 import type { VistaLlamada } from "./tipos"
 
 export type NombreHerramienta = `proveedor_${keyof typeof herramientas}`
@@ -48,15 +49,15 @@ export function resumirResultado(nombre: string, json: string): { ok: boolean; r
   const d = r.data ?? {}
   switch (nombre) {
     case "proveedor_leer_solicitud":
-      return { ok: true, resumen: `formato ${String(d.formato)}, ${largo(d.campos)} campos, ${largo(d.soportes)} soportes exigidos` }
+      return { ok: true, resumen: `formato ${nombreFormato(String(d.formato))}, ${largo(d.campos)} campos, ${largo(d.soportes)} soportes pedidos` }
     case "proveedor_mapear_campos":
       return { ok: true, resumen: `${largo(d.llenos)} llenos, ${largo(d.requiere_confirmacion)} por confirmar, ${largo(d.faltantes)} faltantes` }
     case "proveedor_generar_formulario":
-      return { ok: true, resumen: `${String(d.formato)} → ${String(d.ruta)}` }
+      return { ok: true, resumen: `formulario ${nombreFormato(String(d.formato))} generado` }
     case "proveedor_armar_paquete":
-      return { ok: true, resumen: `paquete ${String(d.estado_firma)} → ${String(d.ruta)}` }
+      return { ok: true, resumen: d.estado_firma === "listo" ? "paquete listo para firma" : d.estado_firma === "no_aplica" ? "paquete armado (portal: se copia a mano)" : "paquete armado, todavía no está listo para firma" }
     case "proveedor_simular_envio":
-      return { ok: true, resumen: `${d.incompleto ? "INCOMPLETO" : "completo"} → ${String(d.ruta)}` }
+      return { ok: true, resumen: `envío simulado ${d.incompleto ? "marcado como incompleto" : "completo"}` }
     default:
       return { ok: true, resumen: "ok" }
   }

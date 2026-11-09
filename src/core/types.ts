@@ -57,6 +57,10 @@ export interface CampoMapeado {
   ruta_maestro?: string
   valor?: string
   nota?: string
+  /** Por qué hay que confirmarlo, en lenguaje de la analista. */
+  razon?: string
+  /** La regla de negocio que lo exige, en lenguaje de la analista. */
+  regla?: string
   obligatorio?: boolean
   hoja?: string
   celda_etiqueta?: string

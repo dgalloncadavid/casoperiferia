@@ -4,7 +4,7 @@ import { getStorage } from "../storage"
 import { cargarCaso, cargarRepositorio } from "./fixtures"
 import { generarFormulario } from "./formulario"
 import { mapear } from "./mapeo"
-import { describirSoporte, evaluarSoportes } from "./soportes"
+import { describirSoporte, evaluarSoportes, nombreSoporte } from "./soportes"
 import { fail, ok, type CampoMapeado, type Result, type SoporteEval, type ToolContext } from "./types"
 import { linea, resolverFecha } from "./util"
 
@@ -41,7 +41,7 @@ function construirChecklist(c: Checklist): string {
   const filas = c.soportes.map((s) => {
     const vig = s.vigencia_hasta ?? "sin vencimiento"
     const dias = s.dias_restantes === null ? "-" : String(s.dias_restantes)
-    return `| ${s.tipo} | ${s.estado} | ${vig} | ${dias} | ${ICONO[s.alerta]} ${s.alerta} | ${s.advertencia ?? ""} |`
+    return `| ${nombreSoporte(s.tipo)} | ${s.estado} | ${vig} | ${dias} | ${ICONO[s.alerta]} ${s.alerta} | ${s.advertencia ?? ""} |`
   })
   const lista = (xs: string[], vacio: string) => (xs.length ? xs.map((x) => `- ${x}`) : [`- ${vacio}`])
   return [
@@ -110,7 +110,7 @@ export async function armarPaquete(caso: string, ctx: ToolContext): Promise<Resu
 
   const soportes = await evaluarSoportes(exigidos, repo.data.soportes, repo.data.dirSoportes, solicitud.pais, fecha)
   for (const s of soportes) {
-    if (s.estado === "ausente") bloqueadores.push(`Soporte ausente: ${s.tipo}`)
+    if (s.estado === "ausente") bloqueadores.push(`Falta el soporte «${nombreSoporte(s.tipo)}»`)
     if (s.estado === "vencido") bloqueadores.push(`Soporte vencido: ${describirSoporte(s)}`)
   }
 
@@ -147,8 +147,8 @@ export async function armarPaquete(caso: string, ctx: ToolContext): Promise<Resu
     fecha_referencia: fecha,
     estado_firma: estado,
     bloqueadores,
-    alertas: soportes.filter((s) => s.estado === "vigente" && s.alerta !== "verde").map((s) => `${describirSoporte(s)} [${s.alerta}]`),
-    advertencias: soportes.filter((s) => s.advertencia).map((s) => `${s.tipo}: ${s.advertencia}`),
+    alertas: soportes.filter((s) => s.estado === "vigente" && s.alerta !== "verde").map((s) => `${describirSoporte(s)} (alerta ${s.alerta})`),
+    advertencias: soportes.filter((s) => s.advertencia).map((s) => `${nombreSoporte(s.tipo)}: ${s.advertencia}`),
     soportes,
     campos_por_confirmar: campos.filter((c) => c.estado === "requiere_confirmacion").map((c) => c.etiqueta),
     campos_faltantes: campos.filter((c) => c.estado === "faltante").map((c) => c.etiqueta),

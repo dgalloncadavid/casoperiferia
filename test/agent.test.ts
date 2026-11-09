@@ -59,7 +59,7 @@ describe("ciclo del agente", () => {
     expect(r.needsConfirmation).toBe(true)
     expect(r.pendiente).toEqual({ caso: "ec-corp-andina", accion: "simular_envio" })
     expect(r.reply).toContain("NO está completo")
-    expect(r.reply).toContain("certificado_cumplimiento_tributario")
+    expect(r.reply).toContain("certificado de cumplimiento tributario")
     expect(r.reply).toContain("Número de contribuyente especial")
     expect(await storage.exists("ec-corp-andina/ENVIO-SIMULADO.md")).toBe(false)
   })
@@ -156,7 +156,7 @@ describe("topes y modo sin modelo", () => {
     expect(r.modo).toBe("sin_modelo")
     expect(r.aviso).toContain("modo sin modelo")
     expect(r.reply).toContain("Número de contribuyente especial")
-    expect(r.reply).toContain("certificado_cumplimiento_tributario")
+    expect(r.reply).toContain("certificado de cumplimiento tributario")
     expect(r.needsConfirmation).toBe(true)
   })
 

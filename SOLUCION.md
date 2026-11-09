@@ -1,6 +1,6 @@
 # SOLUCION.md — Reto 1 «Registro como proveedor»
 
-> Estado: **Pasos 1 a 4 entregados** (incluido el bonus `modulo/`). Pendientes: la experiencia ampliada de Sofía (Paso 5) y el enlace público (lo despliega Diego desde la conexión de Vercel; ver §8).
+> Estado: **Pasos 1 a 5 entregados** (incluido el bonus `modulo/` y la experiencia de Sofía). Pendiente: el enlace público, que despliega Diego desde la conexión de Vercel (ver §8).
 
 ## 1. Problema en una frase
 
@@ -58,6 +58,8 @@ Un cambio de reglas de negocio (por ejemplo, el umbral de alerta de vigencia) to
 - `supabase`: tablas `sessions` y `logs` (más `usage` y `rate_limits` de la migración 002) y el bucket privado `paquetes`. Producción en Vercel no depende del disco.
 
 Las herramientas escriben todo a través de `Storage`; ni siquiera releer el xlsx para verificarlo toca el disco directamente.
+
+**Panel de la analista (Paso 5).** Además del chat, el front tiene una **bandeja de casos** (nuevo, necesita tu decisión, listo para firma, enviado), un **panel del caso** (confirmaciones una por una, soportes con semáforo y trazabilidad de cada campo), un **selector de fecha de referencia** y un **reporte** de faltantes y costo entre casos. Es HTML, CSS y JavaScript sin paso de build (`web/`), y lo alimentan endpoints que calculan todo **en vivo y sin modelo** con la fecha elegida (`GET /api/casos`, `/api/casos/:caso`, `/api/reporte`; `POST /api/casos/:caso/procesar`, `/decisiones` y `/proponer-envio`). Procesar desde el panel usa las mismas herramientas en orden (`processCaso`) y **no gasta tokens**.
 
 **Módulo reutilizable (bonus, PRD §9.4).** La carpeta [modulo/](modulo) empaqueta el agente para otras plataformas **sin depender del servidor**: `agent.md` (frontmatter `mode: primary`, `edit: deny`, `bash: deny`; el cuerpo es el system prompt), `tools/proveedor.ts` (las 5 herramientas en un solo archivo, que solo importa `zod`, `exceljs`, `pdf-lib` y `node:*`) y `skill/registro-proveedor/SKILL.md` (el conocimiento). Hay **una sola fuente de verdad**: la aplicación lee `agent/prompt.md`, `src/knowledge/registro-proveedor.md` y `src/tools/proveedor.ts`, y `bun run build:modulo` genera `modulo/` desde esos mismos archivos; nada en `modulo/` se edita a mano. [test/modulo.test.ts](test/modulo.test.ts) **falla si el módulo se desalinea** (si cambia una fuente sin regenerar, o si alguien retoca `modulo/` a mano) y comprueba que el módulo **funciona sin el servidor**: en una carpeta aislada, con solo `modulo/` y `fixtures/` (sin `src/` ni `agent/`), da los mismos resultados que las herramientas de la aplicación en los 4 casos.
 
@@ -185,6 +187,10 @@ Cada caso consume **un turno con modelo** (leer, mapear, generar y armar: 4 llam
 19. El argumento **`campos` de `proveedor_mapear_campos` se ignora**: los campos siempre se toman de la plantilla del caso (igual que `mapeo`), para que el modelo no pueda introducir etiquetas inventadas.
 20. **`thought_signature` es obligatoria en Gemini 3.** Verificado contra el endpoint compatible con OpenAI: devolver el historial de una llamada a herramienta sin esa firma produce un 400 («Function call is missing a thought_signature»); con ella, 200. El adaptador conserva el `extra_content` de cada llamada y lo reenvía **solo a Gemini**; si el historial viene de otro proveedor (failover a mitad de turno) usa el valor neutro documentado por Google, `skip_thought_signature_validator`. Esta última parte está cubierta por prueba unitaria, **no** por una corrida real de failover hacia Gemini.
 21. **El módulo `modulo/` no incluye el servidor ni Supabase.** Guarda en disco local (`out/` de la raíz anfitriona, que debe contener `fixtures/reto-01/`). Sin servidor, nadie impone la confirmación del envío: en el módulo la protección es la regla 3 del prompt más el argumento `confirmado` de `proveedor_simular_envio`, que la plataforma anfitriona debe poner en `true` solo tras una confirmación humana explícita. Por eso el prompt es **una sola pieza válida en ambos contextos** (describe los dos casos), en vez de un prompt distinto para el módulo.
+22. **Estados de la bandeja.** *Nuevo*: todavía no se procesó. *Necesita tu decisión*: hay valores por confirmar sin confirmar, o algún soporte vencido o ausente **a la fecha elegida** (los campos faltantes no cuentan: no bloquean la firma, supuesto 7). *Listo para firma*: nada de lo anterior (en un portal se muestra como «Listo para copiar al portal»). *Enviado*: existe la constancia del envío simulado. Los estados se calculan en vivo, así que cambian al cambiar la fecha.
+23. **Solo el número de cuenta se enmascara** (`•••• 2345`) en el chat, en lo que se guarda de la sesión y en el panel. El banco, el tipo de cuenta, el titular y el SWIFT se muestran. El número completo va únicamente en el formulario (y en `valores-portal.md`, que es el formulario del portal) y esos archivos se descargan sin autenticación (ver §10).
+24. **Confirmar o «revisar con el cliente» un valor se guarda para la trazabilidad y para el estado de la bandeja, pero no cambia el formulario ya generado** ni permite escribir otro valor: ningún valor del formulario sale de una persona ni del modelo, solo del maestro.
+25. **El costo por caso reparte el gasto de cada turno con modelo, por igual, entre los casos que ese turno tocó.** Un turno que no toca ningún caso solo cuenta en el gasto global. Es una estimación con la tabla de precios configurada (supuesto 12). Procesar desde el panel y el modo sin modelo cuestan cero.
 
 ## 8. Cobertura
 
@@ -241,7 +247,26 @@ Estados: **hecho** (con prueba), **parcial** (con qué falta) o **no hecho**. «
 | `README.md` | Hecho | cómo levantar, variables, API, despliegue |
 | **Enlace público** | **No hecho aún** | Lo despliega Diego desde la conexión de Vercel. `vercel build` no se pudo ejecutar localmente (exige un proyecto real enlazado). Comprobado: la función empaqueta para Node y responde `health`, `chat` y la descarga. `vercel.json` y `api/index.ts` no se han probado en el despliegue real. |
 | **Bonus `modulo/`** (§9.4) | Hecho | Generado por `bun run build:modulo` desde las mismas fuentes que usa la app (una sola fuente de verdad). `test/modulo.test.ts`: alineación exacta (falla si se desalinea o se retoca a mano), frontmatter del PRD, imports permitidos y funcionamiento sin servidor en una carpeta aislada. Limitación: solo almacenamiento local, y la confirmación del envío depende del prompt y de la plataforma anfitriona (supuesto 21). **No probado dentro de una plataforma de agentes real**, solo importado desde un anfitrión mínimo. |
-| Experiencia ampliada de Sofía (bandeja, trazabilidad por campo, reporte de faltantes entre casos, selector de fecha, enmascarado de datos bancarios en el chat, accesibilidad completa) | **Parcial** | Hoy: chat con herramientas visibles, confirmación, fecha de referencia visible, modo oscuro, `prefers-reduced-motion`, íconos Lucide. Falta el resto (Paso 5). Los datos bancarios ya no se escriben en los logs, pero **el chat no los enmascara**. |
+| Experiencia ampliada de Sofía (Paso 5) | **Hecha, con límites** | Ver la tabla siguiente. |
+
+### Experiencia de Sofía (Paso 5)
+
+Las pruebas son `test/panel.test.ts` y `test/contraste.test.ts`, más una auditoría con Chrome real (Puppeteer) y axe-core sobre el front, con el modelo real en el chat.
+
+| Prioridad | Estado | Qué se hizo y qué no |
+|---|---|---|
+| 1. Datos bancarios enmascarados en el chat | Hecho | El número de cuenta sale como `•••• 2345` en la respuesta del modelo (aunque la escriba con espacios o guiones), en el mensaje del usuario, en la sesión guardada, en la API y en el panel; completo solo en el formulario. Probado con el modelo real: pidiéndole la cuenta «completa», responde enmascarada. Límite: solo se enmascara el número de cuenta (supuesto 23). |
+| 2. Bandeja con estados | Hecho | Los cuatro estados, calculados con la fecha elegida (supuesto 22). |
+| 3. Panel con trazabilidad y soportes | Hecho | Cada campo se despliega con: de dónde sale en el maestro, qué herramienta lo llenó y cuándo, dónde quedó en el formulario, qué tan seguro es y, si aplica, la razón y la regla. Los soportes llevan semáforo con ícono **y** texto (no solo color). Detalle técnico (nombre de la herramienta) en un desplegable aparte. |
+| 4. Confirmaciones una por una | Hecho | Una tarjeta por valor («valor 1 de 2») con el valor, la razón y la regla; se confirma o se deja «para revisar con el cliente» (supuesto 24). La confirmación del envío sigue siendo el botón del chat. Límite: no se puede corregir un valor. |
+| 5. Selector visible de fecha | Hecho | Fecha, «Fecha del reto» y «Hoy». Recalcula bandeja, caso, reporte y la fecha que usa el chat; avisa cuando el paquete se armó con otra fecha. Se recuerda entre visitas. |
+| 6. Reporte entre casos y costo por caso | Hecho, con límites | Faltantes agrupados por campo, pendientes por caso y costo (tokens y dólares, siempre rotulado como estimado; supuesto 25). Límite: el costo solo cubre las conversaciones con el modelo; en Supabase se guarda como un archivo por caso (lectura y escritura no atómicas, suficiente a esta escala). |
+| 7. Accesibilidad | Hecho, con límites | Verificado: navegación completa con teclado (enlace «Saltar», Tab, flechas en la bandeja, Enter y Espacio en los campos, foco movido al título al abrir un caso o decidir), foco visible de 3 px, contraste AA **calculado** sobre los colores reales en tema claro y oscuro (32 pares de texto y 9 de bordes, foco y semáforo por tema), reducción de movimiento (sin animaciones ni transiciones), axe-core sin violaciones WCAG A y AA en seis estados (inicio, caso con un campo abierto, tarjeta de decisión, reporte, tema oscuro y móvil), y anuncios para lectores de pantalla en regiones vivas. **No se probó con un lector de pantalla real** (VoiceOver o NVDA) ni se hizo una auditoría manual completa. |
+| Reglas de diseño | Hecho | Íconos solo de Lucide; sin etiquetas tipo pastilla sobre los títulos (el estado va como texto con ícono); animaciones sutiles de 160 a 200 ms; lenguaje de la analista: los soportes, las herramientas y los países se muestran por su nombre, no por su código. |
+
+**Dejado fuera a propósito:** corregir o editar un valor desde el panel; un selector manual de tema claro u oscuro (sigue el del sistema); filtros de campos; notificaciones.
+
+**Dependencia a tener en cuenta:** los íconos de Lucide se cargan desde un CDN (versión fija). Sin red, la página funciona pero sin íconos; todo lleva también texto.
 
 **Qué falta para producción:** autenticación y roles (hoy el enlace es público y solo lo protegen los topes); un dueño del dato del maestro; la integración real con correo y firma electrónica (fuera de alcance); revisión de privacidad de lo guardado en Supabase; pruebas con plantillas reales y peores que los fixtures; monitoreo y alertas del gasto.
 
@@ -276,4 +301,5 @@ Problema, alcance, trampas, supuestos y plan definidos con criterio de Diego Gal
 | Portales con CAPTCHA o MFA | El humano opera el portal; el agente prepara los valores (§5). |
 | Soportes con vigencia que cambia con la fecha | `FECHA_REFERENCIA` explícita y visible en cada resumen y en el checklist; alertas a 30 y 15 días. |
 | En el módulo la confirmación del envío no la impone un servidor | Depende del prompt y de que la plataforma anfitriona controle `confirmado`. Antes de usar el módulo con acciones reales, que el anfitrión exija el botón o el «envía» como lo hace la aplicación; no confiar solo en el modelo. |
+| Las descargas del paquete no están autenticadas y el formulario lleva la cuenta completa | Con datos ficticios no hay impacto. En producción, autenticar las descargas (y todo el panel), enlaces temporales firmados y política de retención. El enmascarado protege el chat, no los archivos. |
 | Sin autenticación ni auditoría por usuario | Añadir login y registrar quién confirma cada envío antes de conectar correo o firma real. |

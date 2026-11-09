@@ -1,8 +1,24 @@
 import { access } from "node:fs/promises"
 import path from "node:path"
 import type { IndiceSoportes } from "./fixtures"
+import { nombrePais } from "./mapeo"
 import type { Alerta, SoporteEval } from "./types"
 import { diasEntre } from "./util"
+
+const NOMBRES_SOPORTE: Record<string, string> = {
+  camara_comercio: "Cámara de Comercio",
+  rut: "RUT",
+  certificacion_bancaria: "certificación bancaria",
+  parafiscales: "certificado de aportes parafiscales",
+  estados_financieros: "estados financieros",
+  certificado_iso_9001: "certificado ISO 9001",
+  certificado_cumplimiento_tributario: "certificado de cumplimiento tributario",
+}
+
+/** Nombre del soporte como lo diría la analista (el tipo interno no se muestra). */
+export function nombreSoporte(tipo: string): string {
+  return NOMBRES_SOPORTE[tipo] ?? tipo.replace(/_/g, " ")
+}
 
 export const UMBRAL_AMARILLA = 30
 export const UMBRAL_ROJA = 15
@@ -47,7 +63,7 @@ export async function evaluarSoportes(
       dias_restantes: dias,
       pais_emisor: entrada.pais_emisor,
       ...(entrada.pais_emisor !== paisCaso
-        ? { advertencia: `emitido en ${entrada.pais_emisor}; el cliente es de ${paisCaso}` }
+        ? { advertencia: `emitido en ${nombrePais(entrada.pais_emisor)}; el cliente es de ${nombrePais(paisCaso)}` }
         : {}),
     })
   }
@@ -55,10 +71,11 @@ export async function evaluarSoportes(
 }
 
 export function describirSoporte(s: SoporteEval): string {
-  if (s.estado === "ausente") return `${s.tipo}: ausente en el repositorio`
-  if (s.estado === "vencido") return `${s.tipo}: vencido el ${s.vigencia_hasta}`
+  const nombre = nombreSoporte(s.tipo)
+  if (s.estado === "ausente") return `${nombre}: no está en el repositorio`
+  if (s.estado === "vencido") return `${nombre}: venció el ${s.vigencia_hasta}`
   if (s.dias_restantes !== null && s.alerta !== "verde") {
-    return `${s.tipo}: vigente, vence el ${s.vigencia_hasta} (quedan ${s.dias_restantes} días)`
+    return `${nombre}: vence el ${s.vigencia_hasta} (quedan ${s.dias_restantes} días)`
   }
-  return `${s.tipo}: vigente`
+  return `${nombre}: vigente`
 }

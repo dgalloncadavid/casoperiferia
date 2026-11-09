@@ -2,7 +2,9 @@ import { config } from "../config"
 import { CASO_RE, listarCasos } from "../core/fixtures"
 import { mapearCaso } from "../core/formulario"
 import type { EstadoCaso } from "../core/paquete"
-import { normalizar, resolverFecha } from "../core/util"
+import { enmascararTexto, valoresSensibles } from "../core/enmascarar"
+import { fechaValida, normalizar, resolverFecha } from "../core/util"
+import { sumarConsumo } from "../core/vista"
 import { ErrorLLM, type Mensaje, type ProveedorLLM, type RespuestaLLM } from "../llm/adapter"
 import { CadenaAgotada } from "../llm/cadena"
 import { costoUsd } from "../llm/precios"
@@ -25,6 +27,8 @@ export interface PeticionChat {
   message: string
   /** Botón estructurado de la UI. */
   confirm?: boolean
+  /** Fecha de referencia elegida en la interfaz (AAAA-MM-DD). */
+  fecha?: string
 }
 
 const MAX_RESULTADO_PARA_MODELO = 8000
@@ -72,7 +76,7 @@ async function ejecutarEnvio(deps: Dependencias, sesion: Sesion, caso: string): 
   const texto = !ok
     ? `No pude registrar el envío simulado: ${r.error ?? "error desconocido"}.`
     : [
-        r.data?.existente ? `Este envío ya estaba registrado; no se duplicó (${r.data.ruta}).` : `Listo: dejé el envío simulado en ${r.data?.ruta}.`,
+        r.data?.existente ? "Este envío ya estaba registrado; no se duplicó." : "Listo: dejé el envío simulado en la carpeta del caso.",
         r.data?.incompleto ? "Quedó marcado como INCOMPLETO por lo pendiente que te indiqué." : "El paquete estaba completo.",
         "No se envió nada real: queda en manos de una persona.",
       ].join("\n")
@@ -91,7 +95,7 @@ async function responderSinModelo(deps: Dependencias, sesion: Sesion, mensaje: s
   }
   const resumen = await processCaso(caso, ctx)
   const llamadas: VistaLlamada[] = [
-    { nombre: "processCaso", args: { caso }, ok: resumen.ok, resumen: `${resumen.total_campos ?? 0} campos, firma: ${resumen.estado_firma ?? "n/d"}` },
+    { nombre: "processCaso", args: { caso }, ok: resumen.ok, resumen: `${resumen.total_campos ?? 0} campos revisados` },
   ]
   const propone = resumen.ok && resumen.estado_firma !== "no_aplica" && resumen.estado_firma !== undefined
   return { texto: textoResumen(resumen, fecha), llamadas, ...(propone ? { caso } : {}) }
@@ -116,7 +120,13 @@ interface ResultadoCiclo {
   sinModelo?: MotivoSinModelo
 }
 
-async function cicloConModelo(deps: Dependencias, sesion: Sesion, mensaje: string, fecha: string, llm: ProveedorLLM): Promise<ResultadoCiclo> {
+interface Consumo {
+  entrada: number
+  salida: number
+  costoUsd: number
+}
+
+async function cicloConModelo(deps: Dependencias, sesion: Sesion, mensaje: string, fecha: string, llm: ProveedorLLM, consumo: Consumo): Promise<ResultadoCiclo> {
   const maxIter = config.maxIterations()
   const defs = definicionesParaModelo()
   const sistema = `${await cargarSystemPrompt(deps.directory)}\n\nFecha de referencia para evaluar la vigencia de los soportes: ${fecha}.`
@@ -145,6 +155,9 @@ async function cicloConModelo(deps: Dependencias, sesion: Sesion, mensaje: strin
     }
     ultima = resp
     sesion.tokens += resp.uso.entrada + resp.uso.salida
+    consumo.entrada += resp.uso.entrada
+    consumo.salida += resp.uso.salida
+    consumo.costoUsd += costoUsd(resp.modelo, resp.uso)
     await deps.storage
       .addUsage(hoyUtc(), { tokensEntrada: resp.uso.entrada, tokensSalida: resp.uso.salida, costoUsd: costoUsd(resp.modelo, resp.uso), peticiones: 1 })
       .catch(() => undefined)
@@ -224,11 +237,22 @@ async function atenderLlamada(
   return { contenido, vista: { nombre, args: vistaArgs, ok, resumen } }
 }
 
+// ---------- costo por caso ----------
+
+/** El gasto del turno se reparte entre los casos que el turno tocó (por igual). Sin caso, solo cuenta en el gasto global. */
+async function atribuirConsumo(deps: Dependencias, sessionId: string, consumo: Consumo, llamadas: VistaLlamada[]): Promise<void> {
+  if (consumo.entrada + consumo.salida === 0) return
+  const casos = [...new Set(llamadas.map((l) => l.args.caso).filter((c): c is string => typeof c === "string" && CASO_RE.test(c)))]
+  for (const caso of casos) {
+    await sumarConsumo(caso, { entrada: consumo.entrada / casos.length, salida: consumo.salida / casos.length, costoUsd: consumo.costoUsd / casos.length }, contexto(deps, sessionId)).catch(() => undefined)
+  }
+}
+
 // ---------- punto de entrada ----------
 
 export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<RespuestaChat> {
   const sesion = await cargarSesion(deps.storage, p.sessionId)
-  const fecha = resolverFecha({ directory: deps.directory, sessionId: p.sessionId }) ?? "2026-09-03"
+  const fecha = p.fecha && fechaValida(p.fecha) ? p.fecha : (resolverFecha({ directory: deps.directory, sessionId: p.sessionId }) ?? "2026-09-03")
   const ahora = () => new Date().toISOString()
   const mensaje = p.message.trim()
   const pendiente = sesion.pendiente
@@ -253,15 +277,17 @@ export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<
     if (pendiente) aviso = "La confirmación de envío pendiente se canceló porque tu mensaje no fue «envía» ni el botón."
     const motivoPrevio: MotivoSinModelo | null = !deps.llm ? "sin_proveedores" : sesion.tokens >= config.sessionTokenCap() ? "tope_sesion" : null
     let resultado: ResultadoCiclo | null = null
+    const consumo: Consumo = { entrada: 0, salida: 0, costoUsd: 0 }
     if (!motivoPrevio && deps.llm) {
       try {
-        resultado = await cicloConModelo(deps, sesion, mensaje, fecha, deps.llm)
+        resultado = await cicloConModelo(deps, sesion, mensaje, fecha, deps.llm, consumo)
       } catch (e) {
         const detalle = e instanceof ErrorLLM ? e.message : "error inesperado"
         await registrar(deps, sesion.id, "llm_error", false, `${e instanceof ErrorLLM ? e.proveedor : "?"}: ${detalle}`)
         resultado = { texto: `No pude consultar el modelo (${detalle}). La sesión sigue activa: puedes intentarlo de nuevo.`, llamadas: [] }
       }
     }
+    await atribuirConsumo(deps, sesion.id, consumo, resultado?.llamadas ?? [])
     const motivo = motivoPrevio ?? resultado?.sinModelo
     if (motivo) {
       modo = "sin_modelo"
@@ -285,6 +311,15 @@ export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<
     sesion.mensajes.push({ role: "user", content: mensaje }, { role: "assistant", content: reply })
   }
 
+  // Datos bancarios: completos solo en el formulario. En el chat y en lo que se guarda, enmascarados.
+  const sensibles = await valoresSensibles(contexto(deps, sesion.id))
+  const enmascarar = (t: string) => enmascararTexto(t, sensibles)
+  reply = enmascarar(reply)
+  if (aviso) aviso = enmascarar(aviso)
+  for (const m of sesion.mensajes.slice(-2)) if ((m.role === "user" || m.role === "assistant") && typeof m.content === "string") m.content = enmascarar(m.content)
+  const ultimaDelUsuario = sesion.historial[sesion.historial.length - 1]
+  if (ultimaDelUsuario) ultimaDelUsuario.texto = enmascarar(ultimaDelUsuario.texto)
+
   sesion.pendiente = nuevoPendiente
   const entrada: EntradaChat = { rol: "assistant", texto: reply, ts: ahora(), toolCalls, needsConfirmation: Boolean(nuevoPendiente), ...(aviso ? { aviso } : {}) }
   sesion.historial.push(entrada)
@@ -302,6 +337,27 @@ export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<
     ...(proveedor ? { proveedor, modelo } : {}),
     fechaReferencia: fecha,
   }
+}
+
+/** «Preparar envío» desde el panel: deja la confirmación pendiente en la sesión, igual que al armar un paquete en el chat. */
+export async function proponerEnvioDesdePanel(
+  deps: Dependencias,
+  sessionId: string,
+  caso: string,
+  fecha: string,
+): Promise<{ ok: true; respuesta: RespuestaChat } | { ok: false; error: string }> {
+  const estado = await paqueteArmado(deps, caso)
+  if (!estado) return { ok: false, error: "Primero procesa el caso para armar el paquete." }
+  if (estado.estado_firma === "no_aplica") return { ok: false, error: "Este caso es de un portal web: no hay envío que preparar." }
+  if (await deps.storage.exists(`${caso}/ENVIO-SIMULADO.md`)) return { ok: false, error: "Este caso ya tiene un envío registrado." }
+  const sesion = await cargarSesion(deps.storage, sessionId)
+  const ahora = new Date().toISOString()
+  const reply = await proponerEnvio(deps, caso, contexto(deps, sessionId))
+  const pendiente: Pendiente = { caso, accion: "simular_envio" }
+  sesion.pendiente = pendiente
+  sesion.historial.push({ rol: "user", texto: `[Panel] Preparar el envío del caso ${caso}`, ts: ahora }, { rol: "assistant", texto: reply, ts: ahora, toolCalls: [], needsConfirmation: true })
+  await deps.storage.saveSession(sessionId, sesion)
+  return { ok: true, respuesta: { sessionId, reply, toolCalls: [], needsConfirmation: true, pendiente, modo: deps.llm ? "modelo" : "sin_modelo", fechaReferencia: fecha } }
 }
 
 export { cargarSesion }

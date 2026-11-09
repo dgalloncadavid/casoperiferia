@@ -339,6 +339,7 @@ var PAISES = {
   PA: "Panamá",
   HN: "Honduras"
 };
+var nombrePais = (codigo) => PAISES[codigo] ?? codigo;
 var CONF_EXACTA = 1;
 var CONF_NORMALIZADA = 0.9;
 var CONF_REGLA = 0.7;
@@ -393,19 +394,27 @@ function mapearCampo(campo, glosario, maestro, pais) {
   if (valor === null) {
     return { ...base, estado: "faltante", confianza: 0, clave, nota: "el maestro no tiene este dato" };
   }
+  let razon;
+  let regla;
   if (clave === "nit") {
     const local = IDENTIFICADOR_POR_PAIS[pais] ?? "identificador tributario";
     if (pais !== "CO") {
       confianza = Math.min(confianza, CONF_REGLA);
       notas.push(`identificador extranjero: se usa el NIT colombiano como ${local}`);
+      razon = `Periferia solo tiene NIT colombiano y este cliente pide el ${local}. Se llenó con el NIT.`;
+      regla = `Para clientes fuera de Colombia, el identificador tributario se llena con el NIT y siempre se confirma: el cliente puede aceptarlo o pedir un registro local.`;
     } else if (normalizar(campo.etiqueta) !== "nit") {
       confianza = Math.min(confianza, CONF_REGLA);
       notas.push("etiqueta de identificador ambigua: se propone el NIT");
+      razon = `La etiqueta «${campo.etiqueta}» no dice qué identificador pide el cliente. Se propone el NIT.`;
+      regla = "Cuando la etiqueta es ambigua se propone el identificador del país del cliente y se pide confirmación.";
     }
   }
   if (clave === "ingresos_ultimo_ano.valor") {
     confianza = Math.min(confianza, CONF_REGLA);
     notas.push("la cifra está en COP del maestro; confirmar moneda con el cliente");
+    razon = "El maestro guarda los ingresos en pesos colombianos (COP) y la cifra no se convierte a otra moneda.";
+    regla = "Los ingresos siempre se escriben con su moneda y su año, y se confirman antes de firmar.";
   }
   const estado = confianza < UMBRAL_CONFIANZA ? "requiere_confirmacion" : "lleno";
   return {
@@ -415,7 +424,8 @@ function mapearCampo(campo, glosario, maestro, pais) {
     clave,
     ruta_maestro: clave,
     valor,
-    ...notas.length ? { nota: notas.join("; ") } : {}
+    ...notas.length ? { nota: notas.join("; ") } : {},
+    ...razon ? { razon, regla } : {}
   };
 }
 function mapear(campos, glosario, maestro, pais) {
@@ -591,6 +601,18 @@ import path5 from "node:path";
 // src/core/soportes.ts
 import { access } from "node:fs/promises";
 import path4 from "node:path";
+var NOMBRES_SOPORTE = {
+  camara_comercio: "Cámara de Comercio",
+  rut: "RUT",
+  certificacion_bancaria: "certificación bancaria",
+  parafiscales: "certificado de aportes parafiscales",
+  estados_financieros: "estados financieros",
+  certificado_iso_9001: "certificado ISO 9001",
+  certificado_cumplimiento_tributario: "certificado de cumplimiento tributario"
+};
+function nombreSoporte(tipo) {
+  return NOMBRES_SOPORTE[tipo] ?? tipo.replace(/_/g, " ");
+}
 var UMBRAL_AMARILLA = 30;
 var UMBRAL_ROJA = 15;
 function alertaPorDias(dias) {
@@ -624,20 +646,21 @@ async function evaluarSoportes(exigidos, indice, dirSoportes, paisCaso, fecha) {
       vigencia_hasta: entrada.vigencia_hasta,
       dias_restantes: dias,
       pais_emisor: entrada.pais_emisor,
-      ...entrada.pais_emisor !== paisCaso ? { advertencia: `emitido en ${entrada.pais_emisor}; el cliente es de ${paisCaso}` } : {}
+      ...entrada.pais_emisor !== paisCaso ? { advertencia: `emitido en ${nombrePais(entrada.pais_emisor)}; el cliente es de ${nombrePais(paisCaso)}` } : {}
     });
   }
   return resultado;
 }
 function describirSoporte(s) {
+  const nombre = nombreSoporte(s.tipo);
   if (s.estado === "ausente")
-    return `${s.tipo}: ausente en el repositorio`;
+    return `${nombre}: no está en el repositorio`;
   if (s.estado === "vencido")
-    return `${s.tipo}: vencido el ${s.vigencia_hasta}`;
+    return `${nombre}: venció el ${s.vigencia_hasta}`;
   if (s.dias_restantes !== null && s.alerta !== "verde") {
-    return `${s.tipo}: vigente, vence el ${s.vigencia_hasta} (quedan ${s.dias_restantes} días)`;
+    return `${nombre}: vence el ${s.vigencia_hasta} (quedan ${s.dias_restantes} días)`;
   }
-  return `${s.tipo}: vigente`;
+  return `${nombre}: vigente`;
 }
 
 // src/core/paquete.ts
@@ -646,7 +669,7 @@ function construirChecklist(c) {
   const filas = c.soportes.map((s) => {
     const vig = s.vigencia_hasta ?? "sin vencimiento";
     const dias = s.dias_restantes === null ? "-" : String(s.dias_restantes);
-    return `| ${s.tipo} | ${s.estado} | ${vig} | ${dias} | ${ICONO[s.alerta]} ${s.alerta} | ${s.advertencia ?? ""} |`;
+    return `| ${nombreSoporte(s.tipo)} | ${s.estado} | ${vig} | ${dias} | ${ICONO[s.alerta]} ${s.alerta} | ${s.advertencia ?? ""} |`;
   });
   const lista = (xs, vacio) => xs.length ? xs.map((x) => `- ${x}`) : [`- ${vacio}`];
   return [
@@ -711,7 +734,7 @@ async function armarPaquete(caso, ctx) {
   const soportes = await evaluarSoportes(exigidos, repo.data.soportes, repo.data.dirSoportes, solicitud.pais, fecha);
   for (const s of soportes) {
     if (s.estado === "ausente")
-      bloqueadores.push(`Soporte ausente: ${s.tipo}`);
+      bloqueadores.push(`Falta el soporte «${nombreSoporte(s.tipo)}»`);
     if (s.estado === "vencido")
       bloqueadores.push(`Soporte vencido: ${describirSoporte(s)}`);
   }
@@ -746,8 +769,8 @@ async function armarPaquete(caso, ctx) {
     fecha_referencia: fecha,
     estado_firma: estado,
     bloqueadores,
-    alertas: soportes.filter((s) => s.estado === "vigente" && s.alerta !== "verde").map((s) => `${describirSoporte(s)} [${s.alerta}]`),
-    advertencias: soportes.filter((s) => s.advertencia).map((s) => `${s.tipo}: ${s.advertencia}`),
+    alertas: soportes.filter((s) => s.estado === "vigente" && s.alerta !== "verde").map((s) => `${describirSoporte(s)} (alerta ${s.alerta})`),
+    advertencias: soportes.filter((s) => s.advertencia).map((s) => `${nombreSoporte(s.tipo)}: ${s.advertencia}`),
     soportes,
     campos_por_confirmar: campos.filter((c) => c.estado === "requiere_confirmacion").map((c) => c.etiqueta),
     campos_faltantes: campos.filter((c) => c.estado === "faltante").map((c) => c.etiqueta)

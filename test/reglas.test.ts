@@ -95,7 +95,7 @@ describe("soportes: vigencia y alertas (HU-4, RN3, supuestos 2, 3, 9)", () => {
   test("soporte de otro país: advertencia, no bloqueo", async () => {
     const r = await evaluar(hasta(200), "2026-09-03", "EC")
     expect(r.estado).toBe("vigente")
-    expect(r.advertencia).toContain("emitido en EC")
+    expect(r.advertencia).toContain("emitido en Ecuador")
   })
   test("fecha de referencia distinta cambia el resultado (supuesto 2)", async () => {
     expect((await evaluar("2026-09-30", "2026-09-03")).alerta).toBe("amarilla")

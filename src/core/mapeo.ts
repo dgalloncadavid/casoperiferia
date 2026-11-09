@@ -11,6 +11,9 @@ const PAISES: Record<string, string> = {
   HN: "Honduras",
 }
 
+/** «EC» → «Ecuador» (si no se conoce el código, se deja tal cual). */
+export const nombrePais = (codigo: string): string => PAISES[codigo] ?? codigo
+
 const CONF_EXACTA = 1.0
 const CONF_NORMALIZADA = 0.9
 const CONF_REGLA = 0.7
@@ -74,19 +77,27 @@ function mapearCampo(
     return { ...base, estado: "faltante", confianza: 0, clave, nota: "el maestro no tiene este dato" }
   }
 
+  let razon: string | undefined
+  let regla: string | undefined
   if (clave === "nit") {
     const local = IDENTIFICADOR_POR_PAIS[pais] ?? "identificador tributario"
     if (pais !== "CO") {
       confianza = Math.min(confianza, CONF_REGLA)
       notas.push(`identificador extranjero: se usa el NIT colombiano como ${local}`)
+      razon = `Periferia solo tiene NIT colombiano y este cliente pide el ${local}. Se llenó con el NIT.`
+      regla = `Para clientes fuera de Colombia, el identificador tributario se llena con el NIT y siempre se confirma: el cliente puede aceptarlo o pedir un registro local.`
     } else if (normalizar(campo.etiqueta) !== "nit") {
       confianza = Math.min(confianza, CONF_REGLA)
       notas.push("etiqueta de identificador ambigua: se propone el NIT")
+      razon = `La etiqueta «${campo.etiqueta}» no dice qué identificador pide el cliente. Se propone el NIT.`
+      regla = "Cuando la etiqueta es ambigua se propone el identificador del país del cliente y se pide confirmación."
     }
   }
   if (clave === "ingresos_ultimo_ano.valor") {
     confianza = Math.min(confianza, CONF_REGLA)
     notas.push("la cifra está en COP del maestro; confirmar moneda con el cliente")
+    razon = "El maestro guarda los ingresos en pesos colombianos (COP) y la cifra no se convierte a otra moneda."
+    regla = "Los ingresos siempre se escriben con su moneda y su año, y se confirman antes de firmar."
   }
 
   const estado = confianza < UMBRAL_CONFIANZA ? "requiere_confirmacion" : "lleno"
@@ -98,6 +109,7 @@ function mapearCampo(
     ruta_maestro: clave,
     valor,
     ...(notas.length ? { nota: notas.join("; ") } : {}),
+    ...(razon ? { razon, regla } : {}),
   }
 }
 
