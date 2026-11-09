@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { idSesionSeguro, rutaSegura, type LogEntry, type Storage } from "./types"
+import { idSesionSeguro, rutaSegura, type LogEntry, type Storage, type UsoDiario } from "./types"
 
 export class LocalStorage implements Storage {
   readonly kind = "local" as const
@@ -81,7 +81,36 @@ export class LocalStorage implements Storage {
     return bytes ? (JSON.parse(new TextDecoder().decode(bytes)) as unknown) : null
   }
 
+  private readonly golpes = new Map<string, number[]>()
+
+  async getUsage(dia: string): Promise<UsoDiario> {
+    const vacio: UsoDiario = { tokensEntrada: 0, tokensSalida: 0, costoUsd: 0, peticiones: 0 }
+    const bytes = await this.readFile(`usage/${rutaSegura(dia)}.json`)
+    return bytes ? { ...vacio, ...(JSON.parse(new TextDecoder().decode(bytes)) as Partial<UsoDiario>) } : vacio
+  }
+
+  async addUsage(dia: string, uso: UsoDiario): Promise<UsoDiario> {
+    const a = await this.getUsage(dia)
+    const total: UsoDiario = {
+      tokensEntrada: a.tokensEntrada + uso.tokensEntrada,
+      tokensSalida: a.tokensSalida + uso.tokensSalida,
+      costoUsd: a.costoUsd + uso.costoUsd,
+      peticiones: a.peticiones + uso.peticiones,
+    }
+    await this.writeFile(`usage/${rutaSegura(dia)}.json`, JSON.stringify(total))
+    return total
+  }
+
+  async rateHit(clave: string, ventanaSeg: number): Promise<number> {
+    const ahora = Date.now()
+    const vivos = (this.golpes.get(clave) ?? []).filter((t) => ahora - t < ventanaSeg * 1000)
+    vivos.push(ahora)
+    this.golpes.set(clave, vivos)
+    return vivos.length
+  }
+
   async clean(): Promise<void> {
-    await rm(this.root, { recursive: true, force: true })
+    const entradas = await readdir(this.root).catch(() => [])
+    for (const e of entradas) if (e !== "usage") await rm(path.join(this.root, e), { recursive: true, force: true })
   }
 }

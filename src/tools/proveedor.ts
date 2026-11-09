@@ -18,6 +18,8 @@ function herramienta<S extends z.ZodRawShape, D>(
   def: {
     description: string
     args: S
+    /** Argumentos que se ignoran o controla el servidor: no se muestran al modelo. */
+    ocultarAlModelo?: (keyof S & string)[]
     run: (args: z.infer<z.ZodObject<S>>, ctx: ToolContext) => Promise<Result<D>>
     resumen: (data: D) => string
   },
@@ -26,6 +28,7 @@ function herramienta<S extends z.ZodRawShape, D>(
   return {
     description: def.description,
     args: def.args,
+    ocultarAlModelo: def.ocultarAlModelo ?? [],
     async execute(args: z.input<typeof schema>, ctx: ToolContext): Promise<string> {
       const parsed = schema.safeParse(args)
       let res: Result<D>
@@ -95,6 +98,7 @@ export const leer_solicitud = herramienta("proveedor_leer_solicitud", {
 
 export const mapear_campos = herramienta("proveedor_mapear_campos", {
   description: "Cruza los campos de la plantilla del caso con el repositorio maestro y los clasifica en llenos, faltantes y por confirmar.",
+  ocultarAlModelo: ["campos"],
   args: {
     caso: z.string().describe(FRASE_CASO),
     campos: z
@@ -121,6 +125,7 @@ export const mapear_campos = herramienta("proveedor_mapear_campos", {
 
 export const generar_formulario = herramienta("proveedor_generar_formulario", {
   description: "Genera el formulario del caso en el formato pedido (xlsx, pdf) o los valores copiables si es portal.",
+  ocultarAlModelo: ["mapeo"],
   args: {
     caso: z.string().describe(FRASE_CASO),
     mapeo: z.unknown().optional().describe("Ignorado: el mapeo siempre se recalcula en el servidor desde el maestro."),
@@ -148,6 +153,7 @@ export const armar_paquete = herramienta("proveedor_armar_paquete", {
 
 export const simular_envio = herramienta("proveedor_simular_envio", {
   description: "Simula el envío escribiendo ENVIO-SIMULADO.md; exige confirmación explícita del usuario.",
+  ocultarAlModelo: ["confirmado"],
   args: {
     caso: z.string().describe(FRASE_CASO),
     confirmado: z.boolean().describe("true solo si el usuario confirmó explícitamente en su mensaje inmediatamente anterior."),

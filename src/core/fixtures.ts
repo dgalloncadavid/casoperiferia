@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises"
+import { readFile, readdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { z } from "zod"
 import { fail, ok, type CampoPlantilla, type Result, type Solicitud, type ToolContext } from "./types"
@@ -108,4 +108,14 @@ export async function cargarRepositorio(ctx: ToolContext): Promise<Result<Reposi
     return fail("repositorio maestro, glosario o índice de soportes ilegible", "repositorio_ilegible")
   }
   return ok({ maestro, glosario, soportes, dirSoportes: path.join(base, "repositorio/soportes") })
+}
+
+/** Nombres de los casos disponibles (carpetas válidas bajo la raíz de casos). */
+export async function listarCasos(ctx: ToolContext): Promise<string[]> {
+  const raiz = path.resolve(ctx.directory, ctx.casosRoot ?? `${RAIZ_FIXTURES}/casos`)
+  const entradas = await readdir(raiz, { withFileTypes: true }).catch(() => [])
+  return entradas
+    .filter((e) => e.isDirectory() && CASO_RE.test(e.name))
+    .map((e) => e.name)
+    .sort()
 }

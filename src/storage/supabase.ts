@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { idSesionSeguro, rutaSegura, type LogEntry, type Storage } from "./types"
+import { idSesionSeguro, rutaSegura, type LogEntry, type Storage, type UsoDiario } from "./types"
 
 const TIPOS: Record<string, string> = {
   md: "text/markdown",
@@ -112,6 +112,29 @@ export class SupabaseStorage implements Storage {
     return data ? (data as { data: unknown }).data : null
   }
 
+  async addUsage(dia: string, uso: UsoDiario): Promise<UsoDiario> {
+    const { data, error } = await this.client.rpc("add_usage", {
+      p_dia: dia,
+      p_entrada: uso.tokensEntrada,
+      p_salida: uso.tokensSalida,
+      p_costo: uso.costoUsd,
+      p_peticiones: uso.peticiones,
+    })
+    if (error) throw new Error(`no se pudo registrar el consumo: ${error.message}`)
+    return filaUso(data)
+  }
+
+  async getUsage(dia: string): Promise<UsoDiario> {
+    const { data } = await this.client.from("usage").select("*").eq("dia", dia).maybeSingle()
+    return filaUso(data)
+  }
+
+  async rateHit(clave: string, ventanaSeg: number): Promise<number> {
+    const { data, error } = await this.client.rpc("rate_hit", { p_clave: clave, p_ventana_seg: ventanaSeg })
+    if (error) throw new Error(`no se pudo aplicar el límite de velocidad: ${error.message}`)
+    return Number(data)
+  }
+
   async clean(): Promise<void> {
     const archivos = await this.list("")
     for (let i = 0; i < archivos.length; i += 100) {
@@ -119,5 +142,15 @@ export class SupabaseStorage implements Storage {
     }
     await this.client.from("logs").delete().gte("id", 0)
     await this.client.from("sessions").delete().neq("id", "")
+  }
+}
+
+function filaUso(fila: unknown): UsoDiario {
+  const f = (Array.isArray(fila) ? fila[0] : fila) as Record<string, unknown> | null | undefined
+  return {
+    tokensEntrada: Number(f?.tokens_entrada ?? 0),
+    tokensSalida: Number(f?.tokens_salida ?? 0),
+    costoUsd: Number(f?.costo_usd ?? 0),
+    peticiones: Number(f?.peticiones ?? 0),
   }
 }

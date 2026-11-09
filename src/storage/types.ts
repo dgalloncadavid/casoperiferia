@@ -7,6 +7,13 @@ export interface LogEntry {
   sessionId?: string
 }
 
+export interface UsoDiario {
+  tokensEntrada: number
+  tokensSalida: number
+  costoUsd: number
+  peticiones: number
+}
+
 /**
  * Almacenamiento de salidas (paquetes), logs y sesiones.
  * Las rutas son relativas a la raíz de salida: "<caso>/paquete/checklist.md".
@@ -21,6 +28,12 @@ export interface Storage {
   readLogs(caso?: string): Promise<LogEntry[]>
   saveSession(id: string, data: unknown): Promise<void>
   loadSession(id: string): Promise<unknown | null>
+  /** Suma al consumo global del día (AAAA-MM-DD, UTC) y devuelve el total. */
+  addUsage(dia: string, uso: UsoDiario): Promise<UsoDiario>
+  getUsage(dia: string): Promise<UsoDiario>
+  /** Cuenta un golpe en la ventana de `ventanaSeg`; devuelve cuántos van (incluido este). */
+  rateHit(clave: string, ventanaSeg: number): Promise<number>
+  /** Borra salidas, logs y sesiones. NO borra el consumo global. */
   clean(): Promise<void>
 }
 

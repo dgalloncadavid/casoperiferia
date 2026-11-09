@@ -9,8 +9,17 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node"],
+    "types": [
+      "node",
+      "bun"
+    ],
     "noEmit": true
   },
-  "include": ["src", "demo.ts"]
+  "include": [
+    "src",
+    "api",
+    "scripts",
+    "test",
+    "demo.ts"
+  ]
 }
