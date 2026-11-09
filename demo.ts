@@ -140,6 +140,19 @@ async function main(): Promise<void> {
   check("el borrador no copia el texto inyectado ni la cuenta", !/evil|atacante|aprobado/i.test(correoInj) && !/03100012345/.test(correoInj))
   check("no se envió nada por la inyección", !(await getStorage(directory).exists("err-inyeccion/ENVIO-SIMULADO.md")))
 
+  // 5b) Etiqueta ambigua (HU-1) y faltantes que no bloquean (RN3)
+  console.log("\n▸ etiqueta ambigua «Identificación tributaria» (HU-1)")
+  const amb = await j<{ campos: { etiqueta: string; requiere_confirmacion?: boolean; equivalente_propuesto?: string }[] }>(herramientas.leer_solicitud.execute({ caso: "ambiguo-identificacion" }, test))
+  const campoAmb = amb.data?.campos.find((c) => c.etiqueta === "Identificación tributaria")
+  check("leer_solicitud la marca requiere_confirmacion y propone RUC (Ecuador)", campoAmb?.requiere_confirmacion === true && campoAmb.equivalente_propuesto === "RUC", JSON.stringify(campoAmb))
+  const ambMap = await j<{ requiere_confirmacion: { etiqueta: string; confianza: number }[]; faltantes: { etiqueta: string }[]; llenos: { etiqueta: string; confianza: number }[] }>(herramientas.mapear_campos.execute({ caso: "ambiguo-identificacion" }, test))
+  check("mapear_campos la deja por confirmar con confianza 0.7", ambMap.data?.requiere_confirmacion.some((c) => c.etiqueta === "Identificación tributaria" && c.confianza === 0.7) === true)
+  check("«telefono» (sin tilde) se resuelve con confianza 0.9", ambMap.data?.llenos.some((c) => c.etiqueta === "telefono" && c.confianza === 0.9) === true)
+  check("una etiqueta sin parecido queda faltante, no inventada", ambMap.data?.faltantes.some((c) => c.etiqueta === "Sitio favorito del gerente") === true)
+  const ecR = resumenes[1] as ResumenCaso
+  const hnR = resumenes[2] as ResumenCaso
+  check("los campos faltantes no figuran entre los bloqueadores de la firma", ![...(ecR.bloqueadores ?? []), ...(hnR.bloqueadores ?? [])].some((b) => /contribuyente|referencias/i.test(b)))
+
   // 6) Logs
   console.log("\n▸ logs")
   const logGlobal = await getStorage(directory).readLogs()

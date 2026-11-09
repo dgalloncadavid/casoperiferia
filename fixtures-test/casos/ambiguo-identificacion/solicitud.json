@@ -1,0 +1,12 @@
+{
+  "id": "ambiguo-identificacion",
+  "de": "proveedores@ejemplo-ficticio.ec",
+  "para": "recepcion@periferia-ficticia.com",
+  "asunto": "Formulario con etiquetas ambiguas",
+  "fecha": "2026-08-27",
+  "pais": "EC",
+  "cliente": "Cliente Ficticio S.A.",
+  "formato": "pdf",
+  "cuerpo": "Adjuntamos el formulario.",
+  "adjuntos": ["Formulario.pdf"]
+}

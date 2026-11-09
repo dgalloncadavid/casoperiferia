@@ -1,0 +1,6 @@
+[
+  { "etiqueta": "Nombre de la empresa", "obligatorio": true },
+  { "etiqueta": "Identificación tributaria", "obligatorio": true },
+  { "etiqueta": "telefono", "obligatorio": true },
+  { "etiqueta": "Sitio favorito del gerente", "obligatorio": false }
+]
