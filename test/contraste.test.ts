@@ -95,18 +95,60 @@ describe("reglas del sistema visual en el CSS", () => {
     expect(malos).toEqual([])
     expect(resto).not.toMatch(/9999px|999px/)
   })
-  test("sin sombras en tarjetas: solo el botón primario y el anillo de drawers y login", () => {
+  test("profundidad: borde de 1px de baja opacidad + sombra en capas muy suave (claro); en oscuro, solo bordes", () => {
+    expect(bloqueClaro).toContain("--hairline: rgba(0, 0, 0, 0.08);")
+    expect(bloqueClaro).toContain("--shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04);")
+    expect(bloqueClaro).toContain("--shadow-float: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.08);")
+    expect(bloqueOscuro).toContain("--shadow-card: none;")
+    expect(bloqueOscuro).toContain("--shadow-float: none;")
+    expect(bloqueOscuro).toMatch(/--hairline: rgba\(255, 255, 255, 0\.1\);/)
+    expect(resto).toMatch(/\.tarjeta \{[^}]*border: 1px solid var\(--hairline\)[^}]*box-shadow: var\(--shadow-card\)/)
+  })
+  test("las únicas sombras son: botón primario, anillo de drawers, tarjetas y composer (todas desde tokens)", () => {
     const usos = [...resto.matchAll(/box-shadow:\s*([^;}]+)[;}]/g)].map((m) => (m[1] as string).trim())
-    expect(usos.every((u) => u === "var(--btn-shadow)" || u === "var(--ring)" || u === "none")).toBe(true)
+    expect(usos.length).toBeGreaterThan(4)
+    expect(usos.filter((u) => !["var(--btn-shadow)", "var(--ring)", "var(--shadow-card)", "var(--shadow-float)", "none"].includes(u))).toEqual([])
     expect(bloqueClaro).toContain("--btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);")
     expect(bloqueClaro).toContain("--ring: 0 0 0 4px rgba(0, 0, 0, 0.08);")
     expect(resto.match(/box-shadow:\s*var\(--btn-shadow\)/g)?.length).toBe(1)
   })
-  test("sin degradados en la interfaz (solo el patrón de puntos del ingreso)", () => {
+  test("encabezado: sticky, translúcido, con blur de 8px y borde sutil", () => {
+    expect(resto).toMatch(/\.encabezado \{[^}]*position: sticky; top: 0;/)
+    expect(resto).toMatch(/\.encabezado \{[^}]*background: color-mix\(in srgb, var\(--canvas\) 82%, transparent\)/)
+    expect(resto).toMatch(/\.encabezado \{[^}]*backdrop-filter: blur\(8px\)/)
+    expect(resto).toMatch(/\.encabezado \{[^}]*border-bottom: 1px solid var\(--hairline\)/)
+    expect(resto).toMatch(/\.encabezado \{[^}]*min-height: 56px/)
+  })
+  test("bandeja: ítems sin caja; el seleccionado lleva fondo neutro y barra de acento de 2px (no el azul lleno)", () => {
+    expect(resto).toMatch(/\.caso-fila\[aria-current="true"\], \.hist-item\[aria-current="true"\] \{ background: var\(--hover\);/)
+    expect(resto).toMatch(/\[aria-current="true"\]::before \{[^}]*width: 2px; background: var\(--blue\)/)
+    expect(resto).not.toMatch(/aria-current[^{]*\{[^}]*var\(--sel-bg\)/)
+  })
+  test("composer flotante: radio de tarjeta, sombra suave y botón de ícono dentro del campo", () => {
+    expect(resto).toMatch(/\.form-chat \{[^}]*border-radius: var\(--r-card\); box-shadow: var\(--shadow-float\)/)
+    expect(resto).toMatch(/\.form-chat \{[^}]*max-width: 720px/)
+    expect(resto).toContain(".btn.icono { width: 36px; padding: 0; }")
+  })
+  test("microinteracciones: hover sube 1px, pulsación escala 0.98, y sin movimiento con «reducir movimiento»", () => {
+    expect(resto).toMatch(/\.btn:hover:not\(:disabled\) \{[^}]*transform: translateY\(-1px\)/)
+    expect(resto).toMatch(/\.btn:active:not\(:disabled\) \{ transform: scale\(0\.98\); \}/)
+    expect(resto).toMatch(/prefers-reduced-motion: reduce\)[\s\S]*\.btn:hover:not\(:disabled\), \.btn:active:not\(:disabled\) \{ transform: none; \}/)
+  })
+  test("esqueletos de carga y estado vacío con ícono grande y suave (sin caja punteada)", () => {
+    expect(resto).toMatch(/\.sk \{[^}]*animation: pulso 1\.2s ease-in-out infinite/)
+    expect(resto).toMatch(/\.vacio-amable svg\.lucide \{ width: 32px; height: 32px;/)
+    expect(resto).not.toMatch(/\.vacio-amable \{[^}]*dashed/)
+  })
+  test("la regla de la tarjeta de decisión se pliega animando la altura (filas de grid de 0fr a 1fr)", () => {
+    expect(resto).toMatch(/\.regla-cuerpo \{ display: grid; grid-template-rows: 0fr; transition: grid-template-rows var\(--t\) ease-out; \}/)
+    expect(resto).toMatch(/\.regla-cuerpo\.abierto \{ grid-template-rows: 1fr; \}/)
+    expect(resto).toMatch(/\.valor-grande \{[^}]*font-family: var\(--mono\); font-size: 20px/)
+  })
+  test("un solo degradado en toda la interfaz: el radial tenue del ingreso, hecho con los neutros existentes", () => {
     expect(resto).not.toMatch(/linear-gradient|conic-gradient/)
-    expect(resto.match(/-gradient\(/g)?.length).toBe(1) // un solo degradado en todo el CSS
-    expect(resto).toContain("background-image: radial-gradient(var(--dots) 1px, transparent 1px)")
-    expect(bloqueClaro).toContain("--dots: rgba(0, 0, 0, 0.04);") // 4 % de opacidad
+    expect(resto.match(/-gradient\(/g)?.length).toBe(1)
+    expect(resto).toContain("background-image: radial-gradient(ellipse 80% 60% at 50% 30%, var(--canvas), var(--paper))")
+    expect(css).not.toContain("--dots")
   })
   test("tipografía: Inter 400, 500 y 600 y JetBrains Mono autoalojadas, con fallback de sistema", () => {
     for (const w of [400, 500, 600]) expect(css).toContain(`font-family: "Inter"; font-style: normal; font-weight: ${w}`)

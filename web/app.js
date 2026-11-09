@@ -10,7 +10,8 @@
     return n;
   };
   const icono = (nombre) => { const i = document.createElement("i"); i.setAttribute("data-lucide", nombre); return i; };
-  const iconos = () => { if (window.lucide) window.lucide.createIcons(); };
+  // Los íconos son decorativos (siempre acompañan texto o el botón tiene aria-label): se ocultan a los lectores de pantalla.
+  const iconos = () => { if (window.lucide) window.lucide.createIcons(); document.querySelectorAll("svg.lucide:not([aria-hidden])").forEach((i) => i.setAttribute("aria-hidden", "true")); };
   const anunciar = (t) => { const a = $("anuncio"); a.textContent = ""; setTimeout(() => { a.textContent = t; }, 50); };
   const almacen = (op, k, v) => { try { return op === "get" ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (e) { return null; } };
   const nuevoId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, "");
@@ -157,6 +158,18 @@
   });
 
   // ---------- bandeja ----------
+  /** Esqueleto de carga: barras que laten en lugar del texto «Cargando». El aviso para lectores de pantalla va oculto a la vista. */
+  function esqueleto(contenedor, filas, claseFila) {
+    contenedor.textContent = "";
+    contenedor.setAttribute("aria-busy", "true");
+    const s = el("div", "skeleton");
+    s.setAttribute("aria-hidden", "true");
+    const anchos = ["sk-l", "sk-m", "sk-s"];
+    for (let i = 0; i < filas; i++) s.appendChild(el("div", "sk " + (claseFila || "") + " " + anchos[i % 3]));
+    contenedor.appendChild(s);
+    contenedor.appendChild(el("span", "solo-lector", "Cargando…"));
+  }
+
   /** Al repintar una lista se destruyen sus botones: el foco debe volver al equivalente nuevo. */
   function recordarFoco(contenedor, atributo) {
     const a = document.activeElement;
@@ -170,6 +183,7 @@
 
   function renderBandeja() {
     const ul = $("lista-casos");
+    ul.removeAttribute("aria-busy");
     const focoCaso = recordarFoco(ul, "caso");
     ul.textContent = "";
     for (const c of estado.casos) {
@@ -204,7 +218,7 @@
 
   async function cargarBandeja() {
     const r = await api("/api/casos?" + q());
-    if (!r.ok) return mostrarError(r.data.error || "No pude cargar la bandeja.");
+    if (!r.ok) { $("lista-casos").textContent = ""; $("lista-casos").removeAttribute("aria-busy"); return mostrarError(r.data.error || "No pude cargar la bandeja."); }
     estado.casos = r.data.casos;
     renderBandeja();
     renderConversaciones();
@@ -246,7 +260,8 @@
 
   async function cargarCaso(moverFoco) {
     if (!estado.seleccion) return;
-    $("detalle-contenido").setAttribute("aria-busy", "true");
+    if (!estado.detalle || estado.detalle.caso !== estado.seleccion) esqueleto($("detalle-contenido"), 7, "");
+    else $("detalle-contenido").setAttribute("aria-busy", "true");
     const r = await api("/api/casos/" + encodeURIComponent(estado.seleccion) + "?" + q());
     $("detalle-contenido").removeAttribute("aria-busy");
     if (!r.ok) { limpiarPrincipal(); mostrarError(r.data.error || "No pude cargar el caso."); return; }
@@ -349,12 +364,24 @@
     fila("Valor propuesto", c.valor || "—", "valor-grande");
     fila("Por qué", c.razon || c.nota || "Hay que confirmarlo antes de firmar.");
     s.appendChild(dl);
-    // La regla va en un desplegable: abierto en pantallas anchas y plegado en las angostas, para no aplastar el chat.
-    const det = el("details", "regla-detalle");
-    det.open = window.matchMedia("(min-width: 601px)").matches;
-    det.appendChild(el("summary", "", "Regla"));
-    det.appendChild(el("p", "", c.regla || "Los valores con poca seguridad se confirman antes de firmar."));
-    s.appendChild(det);
+    // «Regla» plegada por defecto; al abrirla, la altura se anima (filas de grid de 0fr a 1fr).
+    const idRegla = "regla-" + Math.random().toString(36).slice(2, 8);
+    const toggle = el("button", "regla-toggle");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", idRegla);
+    toggle.append(document.createTextNode("Regla"), icono("chevron-down"));
+    const cuerpo = el("div", "regla-cuerpo");
+    cuerpo.id = idRegla;
+    const interior = el("div");
+    interior.appendChild(el("p", "", c.regla || "Los valores con poca seguridad se confirman antes de firmar."));
+    cuerpo.appendChild(interior);
+    toggle.addEventListener("click", () => {
+      const abierto = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!abierto));
+      cuerpo.classList.toggle("abierto", !abierto);
+    });
+    s.append(toggle, cuerpo);
     const acc = el("div", "acciones");
     acc.appendChild(boton("Confirmar este valor", "check", "primario", () => decidir(c.etiqueta, "confirmado")));
     acc.appendChild(boton("Revisar con el cliente", "x", "", () => decidir(c.etiqueta, "revisar")));
@@ -864,12 +891,14 @@
     const focoConv = recordarFoco(cont, "id");
     cont.textContent = "";
     const sesiones = estado.sesiones;
-    if (sesiones === null) { cont.appendChild(el("p", "ayuda", "Cargando tus conversaciones…")); return; }
+    cont.removeAttribute("aria-busy");
+    if (sesiones === null) { esqueleto(cont, 3, "sk-fila"); return; }
     if (sesiones.length === 0) {
       const v = el("div", "vacio-amable");
+      v.appendChild(icono("message-square"));
       v.appendChild(el("p", "", "Todavía no tienes conversaciones."));
-      v.appendChild(el("p", "ayuda", "Cuando empieces una, quedará guardada aquí para que puedas volver a verla."));
       cont.appendChild(v);
+      iconos();
       return;
     }
     const ul = el("ul", "lista-hist");
@@ -919,6 +948,8 @@
     $("fecha-texto").textContent = "Fecha de referencia: " + fechaCorta(estado.fecha);
     mostrarAviso(h.data && h.data.modo === "sin_modelo" ? "No hay modelo configurado: el asistente trabaja en modo sin modelo." : "");
     sincronizarLayout();
+    esqueleto($("lista-casos"), 4, "sk-fila");
+    esqueleto($("lista-conv"), 3, "sk-fila");
     await Promise.all([cargarBandeja(), cargarSesiones()]);
     await iniciarChat();
     iconos();
