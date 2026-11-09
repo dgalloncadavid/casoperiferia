@@ -52,7 +52,7 @@ async function generarXlsx(caso: string, campos: CampoMapeado[], ctx: ToolContex
   }
 
   const rel = `${caso}/formulario.xlsx`
-  await getStorage(ctx.directory).writeFile(rel, new Uint8Array(await wb.xlsx.writeBuffer()))
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, new Uint8Array(await wb.xlsx.writeBuffer()))
   const diferencias = await verificarXlsx(rel, celdas, ctx)
   if (diferencias.length > 0) {
     return fail(`la verificación del xlsx falló en ${diferencias.length} celda(s): ${diferencias.join(", ")}`, "verificacion_fallida")
@@ -62,7 +62,7 @@ async function generarXlsx(caso: string, campos: CampoMapeado[], ctx: ToolContex
 
 /** Relee el archivo generado y compara cada celda con el mapeo. Devuelve las celdas que difieren. */
 async function verificarXlsx(rel: string, celdas: CampoCelda[], ctx: ToolContext): Promise<string[]> {
-  const bytes = await getStorage(ctx.directory).readFile(rel)
+  const bytes = await getStorage(ctx.directory, ctx.userId).readFile(rel)
   if (!bytes) return ["archivo no encontrado"]
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(Buffer.from(bytes) as unknown as ArrayBuffer)
@@ -147,7 +147,7 @@ async function generarPdf(caso: string, cliente: string, campos: CampoMapeado[],
   escribir("Firma del representante legal", normal, 9, 0.3)
 
   const rel = `${caso}/formulario.pdf`
-  await getStorage(ctx.directory).writeFile(rel, await pdf.save())
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, await pdf.save())
   return ok({ ruta: `out/${rel}`, rel, formato: "pdf", soportado: true })
 }
 
@@ -166,7 +166,7 @@ async function generarPortal(caso: string, cliente: string, campos: CampoMapeado
     "",
   ].join("\n")
   const rel = `${caso}/valores-portal.md`
-  await getStorage(ctx.directory).writeFile(rel, md)
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, md)
   return ok({ ruta: `out/${rel}`, rel, formato: "portal", soportado: false })
 }
 

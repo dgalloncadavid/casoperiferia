@@ -2,6 +2,8 @@ export interface ToolContext {
   /** Raíz del proyecto. */
   directory: string
   sessionId: string
+  /** Usuario autenticado (para el log); null si la app corre sin login. */
+  userId?: string | null
   /** AAAA-MM-DD. Si falta: FECHA_REFERENCIA o 2026-09-03. */
   fechaReferencia?: string
   /** Carpeta de casos, relativa a directory; debe estar bajo fixtures/ o fixtures-test/. */

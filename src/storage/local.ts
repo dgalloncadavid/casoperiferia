@@ -1,6 +1,12 @@
 import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { idSesionSeguro, rutaSegura, type LogEntry, type Storage, type UsoDiario } from "./types"
+import { idSesionSeguro, rutaSegura, type LogEntry, type SesionGuardada, type Storage, type UsoDiario } from "./types"
+
+interface SobreSesion {
+  userId: string | null
+  updatedAt: string
+  data: unknown
+}
 
 export class LocalStorage implements Storage {
   readonly kind = "local" as const
@@ -54,31 +60,50 @@ export class LocalStorage implements Storage {
     await mkdir(this.root, { recursive: true })
     await appendFile(path.join(this.root, "log.jsonl"), linea)
     if (entry.caso) {
-      await mkdir(path.join(this.root, entry.caso), { recursive: true })
-      await appendFile(path.join(this.root, entry.caso, "log.jsonl"), linea)
+      const dir = path.join(this.root, ...(entry.userId ? ["usuarios", entry.userId] : []), entry.caso)
+      await mkdir(dir, { recursive: true })
+      await appendFile(path.join(dir, "log.jsonl"), linea)
     }
   }
 
-  async readLogs(caso?: string): Promise<LogEntry[]> {
-    const archivo = caso ? path.join(this.root, rutaSegura(caso), "log.jsonl") : path.join(this.root, "log.jsonl")
+  async readLogs(caso?: string, userId?: string | null): Promise<LogEntry[]> {
+    const base = userId ? path.join(this.root, "usuarios", rutaSegura(userId)) : this.root
+    const archivo = caso ? path.join(base, rutaSegura(caso), "log.jsonl") : path.join(this.root, "log.jsonl")
     try {
       const texto = await readFile(archivo, "utf8")
       return texto
         .split("\n")
         .filter((l) => l.trim() !== "")
         .map((l) => JSON.parse(l) as LogEntry)
+        .filter((l) => !userId || l.userId === userId)
     } catch {
       return []
     }
   }
 
-  async saveSession(id: string, data: unknown): Promise<void> {
-    await this.writeFile(`sessions/${idSesionSeguro(id)}.json`, JSON.stringify(data))
+  async saveSession(id: string, data: unknown, userId?: string | null): Promise<void> {
+    // Sobre equivalente a las columnas de Supabase: dueño y fecha viajan junto a los datos.
+    const sobre: SobreSesion = { userId: userId ?? null, updatedAt: new Date().toISOString(), data }
+    await this.writeFile(`sessions/${idSesionSeguro(id)}.json`, JSON.stringify(sobre))
+  }
+
+  async listSessions(userId: string | null, limite = 50): Promise<SesionGuardada[]> {
+    const filas: SesionGuardada[] = []
+    for (const archivo of (await this.list("sessions")).filter((a) => a.endsWith(".json"))) {
+      const bytes = await this.readFile(archivo)
+      if (!bytes) continue
+      const sobre = JSON.parse(new TextDecoder().decode(bytes)) as SobreSesion
+      if ((sobre.userId ?? null) !== (userId ?? null)) continue
+      const id = archivo.replace(/^sessions\//, "").replace(/\.json$/, "")
+      const resumen = typeof sobre.data === "object" && sobre.data !== null ? (sobre.data as { resumen?: unknown }).resumen ?? null : null
+      filas.push({ id, updatedAt: sobre.updatedAt, resumen })
+    }
+    return filas.sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)).slice(0, limite)
   }
 
   async loadSession(id: string): Promise<unknown | null> {
     const bytes = await this.readFile(`sessions/${idSesionSeguro(id)}.json`)
-    return bytes ? (JSON.parse(new TextDecoder().decode(bytes)) as unknown) : null
+    return bytes ? (JSON.parse(new TextDecoder().decode(bytes)) as SobreSesion).data : null
   }
 
   private readonly golpes = new Map<string, number[]>()

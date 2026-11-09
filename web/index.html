@@ -8,53 +8,98 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<a class="saltar" href="#principal">Saltar al caso</a>
+<main class="ingreso" id="ingreso" hidden aria-labelledby="h-ingreso">
+  <form class="tarjeta ingreso-form" id="form-ingreso" novalidate>
+    <h1 id="h-ingreso">Registro como proveedor</h1>
+    <p class="ayuda">Ingresa con tu correo y tu contraseña. Si todavía no tienes acceso, pídelo a quien administra el proyecto.</p>
+    <div class="campo-form">
+      <label for="correo">Correo</label>
+      <input type="email" id="correo" name="correo" autocomplete="username" required inputmode="email">
+    </div>
+    <div class="campo-form">
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" name="clave" autocomplete="current-password" required>
+    </div>
+    <p class="error-form" id="error-ingreso" role="alert" hidden></p>
+    <button type="submit" class="btn primario" id="entrar"><i data-lucide="log-in"></i> Ingresar</button>
+  </form>
+</main>
 
-<header class="encabezado">
-  <h1>Registro como proveedor</h1>
-  <div class="fecha" role="group" aria-labelledby="etq-fecha">
-    <label id="etq-fecha" for="fecha"><i data-lucide="calendar"></i> Fecha de referencia</label>
-    <input type="date" id="fecha" aria-describedby="ayuda-fecha">
-    <button type="button" class="btn" id="fecha-reto">Fecha del reto</button>
-    <button type="button" class="btn" id="fecha-hoy">Hoy</button>
-    <button type="button" class="btn" id="nueva"><i data-lucide="rotate-ccw"></i> Conversación nueva</button>
+<div id="app" hidden>
+<a class="saltar" href="#chat">Saltar al chat</a>
+
+<header class="encabezado" id="encabezado">
+  <div class="enc-grupo">
+    <button type="button" class="btn" id="abrir-bandeja" hidden aria-controls="panel-bandeja" aria-label="Abrir casos y conversaciones"><i data-lucide="panel-left"></i></button>
+    <h1>Registro como proveedor</h1>
   </div>
-  <p class="ayuda" id="ayuda-fecha">Los soportes se evalúan a esta fecha. Al cambiarla se recalculan la bandeja, el caso y el reporte.</p>
+  <p class="meta enc-fecha"><i data-lucide="calendar"></i> <span id="fecha-texto">Fecha de referencia</span></p>
+  <div class="enc-grupo sesion-usuario">
+    <button type="button" class="btn" id="nueva" aria-label="Sesión nueva"><i data-lucide="rotate-ccw"></i><span class="txt-btn"> Sesión nueva</span></button>
+    <span class="meta" id="usuario" hidden></span>
+    <button type="button" class="btn" id="salir" hidden aria-label="Salir de la sesión"><i data-lucide="log-out"></i><span class="txt-btn"> Salir</span></button>
+  </div>
 </header>
 
-<div class="estructura">
-  <nav class="vista tarjeta bloque activa" id="bandeja" aria-labelledby="h-bandeja">
-    <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
-    <ul class="bandeja-lista" id="lista-casos"></ul>
-    <button type="button" class="btn btn-reporte" id="ver-reporte"><i data-lucide="clipboard-list"></i> Reporte de faltantes y costo</button>
+<div class="estructura" id="estructura">
+  <nav class="panel-izq tarjeta" id="panel-bandeja" aria-label="Casos y conversaciones">
+    <div class="panel-cab panel-cab-izq">
+      <button type="button" class="btn" id="cerrar-bandeja" aria-label="Cerrar casos y conversaciones"><i data-lucide="x"></i></button>
+    </div>
+    <section class="bloque" aria-labelledby="h-bandeja">
+      <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
+      <ul class="bandeja-lista" id="lista-casos"></ul>
+    </section>
+    <section class="bloque" aria-labelledby="h-conv">
+      <h2 id="h-conv"><i data-lucide="history"></i> Conversaciones</h2>
+      <div id="lista-conv"></div>
+    </section>
+    <section class="bloque pie-bandeja" aria-label="Fecha y reporte">
+      <div class="fecha" role="group" aria-labelledby="etq-fecha">
+        <label id="etq-fecha" for="fecha"><i data-lucide="calendar"></i> Fecha de referencia</label>
+        <input type="date" id="fecha" aria-describedby="ayuda-fecha">
+        <div class="acciones">
+          <button type="button" class="btn" id="fecha-reto">Fecha del reto</button>
+          <button type="button" class="btn" id="fecha-hoy">Hoy</button>
+        </div>
+      </div>
+      <p class="solo-lector" id="ayuda-fecha">Los soportes se evalúan a esta fecha. Al cambiarla se recalculan la bandeja, el caso y el reporte.</p>
+      <button type="button" class="btn btn-reporte" id="ver-reporte"><i data-lucide="clipboard-list"></i> Reporte de faltantes y costo</button>
+    </section>
   </nav>
 
-  <main class="vista" id="principal" tabindex="-1" aria-label="Detalle">
-    <div class="tarjeta bloque" id="vacio"><p>Elige un caso de la bandeja para ver qué quedó lleno, qué falta y de dónde sale cada dato.</p></div>
-  </main>
-
-  <section class="vista tarjeta" id="chat" aria-labelledby="h-chat">
-    <h2 id="h-chat"><i data-lucide="message-square"></i> Conversación</h2>
+  <main class="centro tarjeta" id="chat" aria-labelledby="h-chat">
+    <div class="chat-cab">
+      <h2 id="h-chat"><i data-lucide="message-square"></i> Conversación</h2>
+      <span class="meta" id="caso-foco"></span>
+      <button type="button" class="btn" id="abrir-detalle" hidden aria-controls="panel-detalle"><i data-lucide="panel-right-open"></i> Detalle del caso</button>
+    </div>
     <div id="aviso-chat" class="aviso" role="status" hidden></div>
-    <div id="mensajes" role="log" aria-live="polite" aria-label="Mensajes"></div>
+    <div id="mensajes" role="log" aria-live="polite" aria-label="Mensajes" tabindex="0"></div>
+    <div id="decision-chat" class="decision-zona" hidden></div>
     <div id="pensando" hidden role="status"><i data-lucide="loader-circle"></i><span>Pensando…</span></div>
     <form class="form-chat" id="form-chat">
       <label for="entrada" class="solo-lector">Mensaje para el asistente</label>
       <textarea id="entrada" rows="2" maxlength="2000" placeholder="Ej.: Procesa el caso ec-corp-andina. No envíes nada todavía."></textarea>
       <button type="submit" class="btn primario" id="enviar"><i data-lucide="send"></i> Enviar</button>
     </form>
-  </section>
+  </main>
+
+  <aside class="panel-der" id="panel-detalle" aria-labelledby="h-detalle" hidden>
+    <div class="panel-cab">
+      <h2 id="h-detalle">Detalle del caso</h2>
+      <button type="button" class="btn" id="cerrar-detalle" aria-label="Cerrar el detalle"><i data-lucide="panel-right-close"></i></button>
+    </div>
+    <div id="detalle-contenido"></div>
+  </aside>
+</div>
 </div>
 
-<div class="pestanas" role="tablist" aria-label="Secciones">
-  <button type="button" role="tab" id="pest-bandeja" aria-controls="bandeja" aria-selected="true"><i data-lucide="inbox"></i>Casos</button>
-  <button type="button" role="tab" id="pest-principal" aria-controls="principal" aria-selected="false"><i data-lucide="file-text"></i>Detalle</button>
-  <button type="button" role="tab" id="pest-chat" aria-controls="chat" aria-selected="false"><i data-lucide="message-square"></i>Conversación</button>
-</div>
-
+<div class="drawer-fondo" id="fondo-paneles" hidden></div>
 <div class="solo-lector" id="anuncio" role="status" aria-live="polite"></div>
 
 <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

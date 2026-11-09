@@ -41,7 +41,7 @@ const HERRAMIENTAS: Record<string, string> = {
 }
 
 const leerJson = async <T>(rel: string, ctx: ToolContext): Promise<T | null> => {
-  const bytes = await getStorage(ctx.directory).readFile(rel)
+  const bytes = await getStorage(ctx.directory, ctx.userId).readFile(rel)
   return bytes ? (JSON.parse(new TextDecoder().decode(bytes)) as T) : null
 }
 
@@ -57,7 +57,7 @@ export async function guardarDecision(caso: string, etiqueta: string, decision: 
   if (!campo || campo.estado !== "requiere_confirmacion") return fail("ese campo no está pendiente de confirmación", "campo_invalido")
   const decisiones = await leerDecisiones(caso, ctx)
   decisiones[etiqueta] = { decision, ts: new Date().toISOString() }
-  await getStorage(ctx.directory).writeFile(`${caso}/decisiones.json`, JSON.stringify(decisiones, null, 2))
+  await getStorage(ctx.directory, ctx.userId).writeFile(`${caso}/decisiones.json`, JSON.stringify(decisiones, null, 2))
   return ok(decisiones)
 }
 
@@ -69,7 +69,7 @@ export async function sumarConsumo(caso: string, extra: { entrada: number; salid
     costoUsd: a.costoUsd + extra.costoUsd,
     turnos: a.turnos + 1,
   }
-  await getStorage(ctx.directory).writeFile(`${caso}/costo.json`, JSON.stringify(total))
+  await getStorage(ctx.directory, ctx.userId).writeFile(`${caso}/costo.json`, JSON.stringify(total))
 }
 
 function origenLegible(campo: CampoMapeado, glosario: Record<string, string>): string {
@@ -146,7 +146,7 @@ export async function vistaCaso(caso: string, ctx: ToolContext, fecha: string): 
     // Plantilla corrupta u otro error: no hay vista, el chat ya lo explica en lenguaje claro.
     return m
   }
-  const storage = getStorage(ctx.directory)
+  const storage = getStorage(ctx.directory, ctx.userId)
   const { solicitud, exigidos, campos, repo } = m.data
   const estadoCaso = await leerJson<EstadoCaso>(`${caso}/estado.json`, ctx)
   const procesado = estadoCaso !== null

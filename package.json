@@ -10,7 +10,8 @@
     "test": "bun test",
     "check:llm": "bun scripts/e2e-llm.ts",
     "build:modulo": "bun scripts/build-modulo.ts",
-    "check:modulo": "bun scripts/build-modulo.ts --check"
+    "check:modulo": "bun scripts/build-modulo.ts --check",
+    "vercel-build": "node scripts/build-vercel.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
     "pdfjs-dist": "^6.5.438",
     "typescript": "^7.0.2"
   }

@@ -6,3 +6,5 @@ out/
 .vercel/
 *.log
 .DS_Store
+# Bundle de la función de Vercel: lo genera `vercel-build`
+api/index.js

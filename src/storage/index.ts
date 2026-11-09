@@ -1,5 +1,6 @@
 import path from "node:path"
 import { LocalStorage } from "./local"
+import { ambitoDeUsuario } from "./scoped"
 import { SupabaseStorage } from "./supabase"
 import type { Storage } from "./types"
 
@@ -28,7 +29,10 @@ function crear(directory: string): Storage {
   return new LocalStorage(path.resolve(directory, raiz))
 }
 
-export function getStorage(directory: string): Storage {
+export { ambitoDeUsuario } from "./scoped"
+
+/** Almacenamiento activo; con `userId`, el ámbito de ese usuario (sus casos y paquetes). */
+export function getStorage(directory: string, userId?: string | null): Storage {
   if (!actual) actual = crear(directory)
-  return actual
+  return ambitoDeUsuario(actual, userId)
 }

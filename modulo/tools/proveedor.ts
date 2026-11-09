@@ -77,26 +77,44 @@ class LocalStorage {
     await mkdir(this.root, { recursive: true });
     await appendFile(path.join(this.root, "log.jsonl"), linea);
     if (entry.caso) {
-      await mkdir(path.join(this.root, entry.caso), { recursive: true });
-      await appendFile(path.join(this.root, entry.caso, "log.jsonl"), linea);
+      const dir = path.join(this.root, ...entry.userId ? ["usuarios", entry.userId] : [], entry.caso);
+      await mkdir(dir, { recursive: true });
+      await appendFile(path.join(dir, "log.jsonl"), linea);
     }
   }
-  async readLogs(caso) {
-    const archivo = caso ? path.join(this.root, rutaSegura(caso), "log.jsonl") : path.join(this.root, "log.jsonl");
+  async readLogs(caso, userId) {
+    const base = userId ? path.join(this.root, "usuarios", rutaSegura(userId)) : this.root;
+    const archivo = caso ? path.join(base, rutaSegura(caso), "log.jsonl") : path.join(this.root, "log.jsonl");
     try {
       const texto = await readFile(archivo, "utf8");
       return texto.split(`
-`).filter((l) => l.trim() !== "").map((l) => JSON.parse(l));
+`).filter((l) => l.trim() !== "").map((l) => JSON.parse(l)).filter((l) => !userId || l.userId === userId);
     } catch {
       return [];
     }
   }
-  async saveSession(id, data) {
-    await this.writeFile(`sessions/${idSesionSeguro(id)}.json`, JSON.stringify(data));
+  async saveSession(id, data, userId) {
+    const sobre = { userId: userId ?? null, updatedAt: new Date().toISOString(), data };
+    await this.writeFile(`sessions/${idSesionSeguro(id)}.json`, JSON.stringify(sobre));
+  }
+  async listSessions(userId, limite = 50) {
+    const filas = [];
+    for (const archivo of (await this.list("sessions")).filter((a) => a.endsWith(".json"))) {
+      const bytes = await this.readFile(archivo);
+      if (!bytes)
+        continue;
+      const sobre = JSON.parse(new TextDecoder().decode(bytes));
+      if ((sobre.userId ?? null) !== (userId ?? null))
+        continue;
+      const id = archivo.replace(/^sessions\//, "").replace(/\.json$/, "");
+      const resumen = typeof sobre.data === "object" && sobre.data !== null ? sobre.data.resumen ?? null : null;
+      filas.push({ id, updatedAt: sobre.updatedAt, resumen });
+    }
+    return filas.sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)).slice(0, limite);
   }
   async loadSession(id) {
     const bytes = await this.readFile(`sessions/${idSesionSeguro(id)}.json`);
-    return bytes ? JSON.parse(new TextDecoder().decode(bytes)) : null;
+    return bytes ? JSON.parse(new TextDecoder().decode(bytes)).data : null;
   }
   golpes = new Map;
   async getUsage(dia) {
@@ -130,6 +148,33 @@ class LocalStorage {
   }
 }
 
+// src/storage/scoped.ts
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function ambitoDeUsuario(base, userId) {
+  if (!userId)
+    return base;
+  if (!UUID_RE.test(userId))
+    throw new Error("id de usuario inválido");
+  const raiz = `usuarios/${userId}`;
+  const ruta = (p) => p === "" ? raiz : `${raiz}/${p}`;
+  return {
+    kind: base.kind,
+    writeFile: (p, d) => base.writeFile(ruta(p), d),
+    readFile: (p) => base.readFile(ruta(p)),
+    exists: (p) => base.exists(ruta(p)),
+    list: async (prefijo) => (await base.list(ruta(prefijo))).map((a) => a.slice(raiz.length + 1)),
+    appendLog: (e) => base.appendLog({ ...e, userId: e.userId ?? userId }),
+    readLogs: (caso) => base.readLogs(caso, userId),
+    saveSession: (id, data, uid) => base.saveSession(id, data, uid ?? userId),
+    loadSession: (id) => base.loadSession(id),
+    listSessions: (uid, limite) => base.listSessions(uid, limite),
+    addUsage: (dia, uso) => base.addUsage(dia, uso),
+    getUsage: (dia) => base.getUsage(dia),
+    rateHit: (clave, ventana) => base.rateHit(clave, ventana),
+    clean: () => base.clean()
+  };
+}
+
 // stub:supabase-no-incluido
 class SupabaseStorage {
   constructor() {
@@ -153,10 +198,10 @@ function crear(directory) {
   const raiz = process.env.OUT_DIR || (process.env.VERCEL ? "/tmp/out" : "out");
   return new LocalStorage(path2.resolve(directory, raiz));
 }
-function getStorage(directory) {
+function getStorage(directory, userId) {
   if (!actual)
     actual = crear(directory);
-  return actual;
+  return ambitoDeUsuario(actual, userId);
 }
 
 // src/core/fixtures.ts
@@ -266,7 +311,7 @@ async function simularEnvio(caso, confirmado, ctx) {
   const dir = await resolverCaso(caso, ctx);
   if (!dir.ok)
     return dir;
-  const storage = getStorage(ctx.directory);
+  const storage = getStorage(ctx.directory, ctx.userId);
   const bytes = await storage.readFile(`${caso}/estado.json`);
   if (!bytes)
     return fail("el paquete aún no está armado: ejecute proveedor_armar_paquete primero", "paquete_no_armado");
@@ -468,7 +513,7 @@ async function generarXlsx(caso, campos, ctx) {
       valor.value = c.valor;
   }
   const rel = `${caso}/formulario.xlsx`;
-  await getStorage(ctx.directory).writeFile(rel, new Uint8Array(await wb.xlsx.writeBuffer()));
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, new Uint8Array(await wb.xlsx.writeBuffer()));
   const diferencias = await verificarXlsx(rel, celdas, ctx);
   if (diferencias.length > 0) {
     return fail(`la verificación del xlsx falló en ${diferencias.length} celda(s): ${diferencias.join(", ")}`, "verificacion_fallida");
@@ -476,7 +521,7 @@ async function generarXlsx(caso, campos, ctx) {
   return ok({ ruta: `out/${rel}`, rel, formato: "xlsx", soportado: true });
 }
 async function verificarXlsx(rel, celdas, ctx) {
-  const bytes = await getStorage(ctx.directory).readFile(rel);
+  const bytes = await getStorage(ctx.directory, ctx.userId).readFile(rel);
   if (!bytes)
     return ["archivo no encontrado"];
   const wb = new ExcelJS.Workbook;
@@ -560,7 +605,7 @@ async function generarPdf(caso, cliente, campos, ctx) {
   pagina.drawLine({ start: { x: margen, y }, end: { x: margen + 220, y }, thickness: 0.8 });
   escribir("Firma del representante legal", normal, 9, 0.3);
   const rel = `${caso}/formulario.pdf`;
-  await getStorage(ctx.directory).writeFile(rel, await pdf.save());
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, await pdf.save());
   return ok({ ruta: `out/${rel}`, rel, formato: "pdf", soportado: true });
 }
 async function generarPortal(caso, cliente, campos, ctx) {
@@ -579,7 +624,7 @@ async function generarPortal(caso, cliente, campos, ctx) {
   ].join(`
 `);
   const rel = `${caso}/valores-portal.md`;
-  await getStorage(ctx.directory).writeFile(rel, md);
+  await getStorage(ctx.directory, ctx.userId).writeFile(rel, md);
   return ok({ ruta: `out/${rel}`, rel, formato: "portal", soportado: false });
 }
 async function generarFormulario(caso, ctx) {
@@ -729,7 +774,7 @@ async function armarPaquete(caso, ctx) {
   if (!repo.ok)
     return repo;
   const { solicitud, exigidos, plantilla } = cargado.data;
-  const storage = getStorage(ctx.directory);
+  const storage = getStorage(ctx.directory, ctx.userId);
   const bloqueadores = [];
   const soportes = await evaluarSoportes(exigidos, repo.data.soportes, repo.data.dirSoportes, solicitud.pais, fecha);
   for (const s of soportes) {
@@ -808,13 +853,14 @@ function herramienta(nombre, def) {
       const candidato = args?.caso;
       const caso = typeof candidato === "string" && CASO_RE.test(candidato) ? candidato : null;
       try {
-        await getStorage(ctx.directory).appendLog({
+        await getStorage(ctx.directory, ctx.userId).appendLog({
           ts: new Date().toISOString(),
           herramienta: nombre,
           ok: res.ok,
           resumen: res.ok ? def.resumen(res.data) : `${res.codigo ?? "error"}: ${res.error}`.slice(0, 300),
           caso,
-          sessionId: ctx.sessionId
+          sessionId: ctx.sessionId,
+          userId: ctx.userId ?? null
         });
       } catch {}
       return JSON.stringify(res);

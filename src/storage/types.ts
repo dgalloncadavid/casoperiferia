@@ -5,6 +5,15 @@ export interface LogEntry {
   resumen: string
   caso: string | null
   sessionId?: string
+  /** uuid del usuario autenticado (null si la app corre sin login). */
+  userId?: string | null
+}
+
+export interface SesionGuardada {
+  id: string
+  /** ISO 8601 de la última actualización. */
+  updatedAt: string
+  resumen: unknown
 }
 
 export interface UsoDiario {
@@ -25,9 +34,12 @@ export interface Storage {
   exists(path: string): Promise<boolean>
   list(prefix: string): Promise<string[]>
   appendLog(entry: LogEntry): Promise<void>
-  readLogs(caso?: string): Promise<LogEntry[]>
-  saveSession(id: string, data: unknown): Promise<void>
+  /** Logs de un caso (o todos); con `userId`, solo los de ese usuario. */
+  readLogs(caso?: string, userId?: string | null): Promise<LogEntry[]>
+  saveSession(id: string, data: unknown, userId?: string | null): Promise<void>
   loadSession(id: string): Promise<unknown | null>
+  /** Sesiones de ESE usuario (null = sin login), las más recientes primero. Siempre filtra en el almacenamiento. */
+  listSessions(userId: string | null, limite?: number): Promise<SesionGuardada[]>
   /** Suma al consumo global del día (AAAA-MM-DD, UTC) y devuelve el total. */
   addUsage(dia: string, uso: UsoDiario): Promise<UsoDiario>
   getUsage(dia: string): Promise<UsoDiario>

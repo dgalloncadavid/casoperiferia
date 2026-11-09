@@ -21,9 +21,22 @@ export interface EntradaChat {
   aviso?: string
 }
 
+export type EstadoSesion = "en_curso" | "listo" | "bloqueado" | "incompleto"
+
+/** Lo que muestra el historial de una conversación. */
+export interface ResumenSesion {
+  caso: string | null
+  estado: EstadoSesion
+}
+
 export interface Sesion {
   id: string
   creada: string
+  /** Última vez que se guardó (ISO). */
+  actualizada: string
+  /** Dueño de la sesión (uuid de Supabase Auth); null si la app corre sin login. */
+  usuarioId: string | null
+  resumen: ResumenSesion
   /** Solo texto de usuario y asistente entre turnos (las herramientas se reejecutan si hace falta). */
   mensajes: Mensaje[]
   historial: EntradaChat[]

@@ -105,7 +105,7 @@ export async function armarPaquete(caso: string, ctx: ToolContext): Promise<Resu
   const repo = await cargarRepositorio(ctx)
   if (!repo.ok) return repo
   const { solicitud, exigidos, plantilla } = cargado.data
-  const storage = getStorage(ctx.directory)
+  const storage = getStorage(ctx.directory, ctx.userId)
   const bloqueadores: string[] = []
 
   const soportes = await evaluarSoportes(exigidos, repo.data.soportes, repo.data.dirSoportes, solicitud.pais, fecha)

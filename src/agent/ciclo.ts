@@ -9,17 +9,19 @@ import { ErrorLLM, type Mensaje, type ProveedorLLM, type RespuestaLLM } from "..
 import { CadenaAgotada } from "../llm/cadena"
 import { costoUsd } from "../llm/precios"
 import { processCaso } from "../process"
-import type { Storage } from "../storage"
+import { ambitoDeUsuario, type Storage } from "../storage"
 import { definicionesParaModelo, ejecutarHerramienta, esHerramienta, resumirResultado } from "./herramientas"
 import { cargarSystemPrompt } from "./prompt"
 import { textoConfirmacion, textoResumen, textoTopeIteraciones } from "./textos"
-import type { EntradaChat, Pendiente, RespuestaChat, Sesion, VistaLlamada } from "./tipos"
+import type { EntradaChat, Pendiente, RespuestaChat, ResumenSesion, Sesion, VistaLlamada } from "./tipos"
 
 export interface Dependencias {
   directory: string
   storage: Storage
   /** null = sin proveedores configurados (modo sin modelo). */
   llm: ProveedorLLM | null
+  /** Usuario autenticado de esta petición (null = app sin login). Lo fija el servidor, nunca el cliente. */
+  usuarioId?: string | null
 }
 
 export interface PeticionChat {
@@ -29,6 +31,8 @@ export interface PeticionChat {
   confirm?: boolean
   /** Fecha de referencia elegida en la interfaz (AAAA-MM-DD). */
   fecha?: string
+  /** Lo pone el servidor a partir del token; el cuerpo de la petición no puede fijarlo. */
+  usuarioId?: string | null
 }
 
 const MAX_RESULTADO_PARA_MODELO = 8000
@@ -36,14 +40,19 @@ const hoyUtc = () => new Date().toISOString().slice(0, 10)
 
 export const esEnvia = (texto: string): boolean => normalizar(texto).replace(/[^a-z ]/g, "").trim() === "envia"
 
-async function cargarSesion(storage: Storage, id: string): Promise<Sesion> {
+async function cargarSesion(storage: Storage, id: string, usuarioId: string | null = null): Promise<Sesion> {
   const guardada = (await storage.loadSession(id).catch(() => null)) as Sesion | null
-  return guardada ?? { id, creada: new Date().toISOString(), mensajes: [], historial: [], tokens: 0 }
+  if (guardada) return guardada
+  const ahora = new Date().toISOString()
+  return { id, creada: ahora, actualizada: ahora, usuarioId, resumen: { caso: null, estado: "en_curso" }, mensajes: [], historial: [], tokens: 0 }
 }
+
+/** ¿La sesión es de este usuario? Una sesión de otro (o de la app sin login) se trata como inexistente. */
+export const esDeUsuario = (s: Sesion, usuarioId: string | null): boolean => (s.usuarioId ?? null) === (usuarioId ?? null)
 
 async function registrar(deps: Dependencias, sessionId: string, herramienta: string, ok: boolean, resumen: string): Promise<void> {
   await deps.storage
-    .appendLog({ ts: new Date().toISOString(), herramienta, ok, resumen: resumen.slice(0, 300), caso: null, sessionId })
+    .appendLog({ ts: new Date().toISOString(), herramienta, ok, resumen: resumen.slice(0, 300), caso: null, sessionId, userId: deps.usuarioId ?? null })
     .catch(() => undefined)
 }
 
@@ -64,7 +73,7 @@ async function paqueteArmado(deps: Dependencias, caso: string): Promise<EstadoCa
 }
 
 function contexto(deps: Dependencias, sessionId: string) {
-  return { directory: deps.directory, sessionId }
+  return { directory: deps.directory, sessionId, userId: deps.usuarioId ?? null }
 }
 
 async function ejecutarEnvio(deps: Dependencias, sesion: Sesion, caso: string): Promise<{ texto: string; llamada: VistaLlamada }> {
@@ -248,10 +257,26 @@ async function atribuirConsumo(deps: Dependencias, sessionId: string, consumo: C
   }
 }
 
+// ---------- resumen para el historial ----------
+
+/** Estado de la conversación a la hora de guardarla: en curso, listo, bloqueado o incompleto (si se envió así). */
+async function calcularResumen(deps: Dependencias, sesion: Sesion, llamadas: VistaLlamada[], pendiente: Pendiente | undefined): Promise<ResumenSesion> {
+  const delTurno = llamadas.map((l) => l.args.caso).filter((c): c is string => typeof c === "string" && CASO_RE.test(c)).at(-1)
+  const caso = pendiente?.caso ?? delTurno ?? sesion.resumen?.caso ?? null
+  if (pendiente || !caso) return { caso, estado: "en_curso" }
+  const estado = await paqueteArmado(deps, caso)
+  if (!estado) return { caso, estado: "en_curso" }
+  if (await deps.storage.exists(`${caso}/ENVIO-SIMULADO.md`)) return { caso, estado: estado.listo_para_firma || estado.estado_firma === "no_aplica" ? "listo" : "incompleto" }
+  return { caso, estado: estado.estado_firma === "bloqueado" ? "bloqueado" : "listo" }
+}
+
 // ---------- punto de entrada ----------
 
-export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<RespuestaChat> {
-  const sesion = await cargarSesion(deps.storage, p.sessionId)
+export async function manejarChat(depsBase: Dependencias, p: PeticionChat): Promise<RespuestaChat> {
+  // Los archivos del caso (paquete, estado, constancia) son de ESTE usuario: se escriben bajo su ámbito.
+  const deps: Dependencias = { ...depsBase, usuarioId: p.usuarioId ?? null, storage: ambitoDeUsuario(depsBase.storage, p.usuarioId ?? null) }
+  const sesion = await cargarSesion(deps.storage, p.sessionId, deps.usuarioId ?? null)
+  if (!esDeUsuario(sesion, deps.usuarioId ?? null)) throw new Error("sesion_ajena")
   const fecha = p.fecha && fechaValida(p.fecha) ? p.fecha : (resolverFecha({ directory: deps.directory, sessionId: p.sessionId }) ?? "2026-09-03")
   const ahora = () => new Date().toISOString()
   const mensaje = p.message.trim()
@@ -324,7 +349,9 @@ export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<
   const entrada: EntradaChat = { rol: "assistant", texto: reply, ts: ahora(), toolCalls, needsConfirmation: Boolean(nuevoPendiente), ...(aviso ? { aviso } : {}) }
   sesion.historial.push(entrada)
   sesion.mensajes = sesion.mensajes.slice(-20)
-  await deps.storage.saveSession(sesion.id, sesion)
+  sesion.actualizada = ahora()
+  sesion.resumen = await calcularResumen(deps, sesion, toolCalls, nuevoPendiente)
+  await deps.storage.saveSession(sesion.id, sesion, deps.usuarioId ?? null)
 
   return {
     sessionId: sesion.id,
@@ -341,22 +368,27 @@ export async function manejarChat(deps: Dependencias, p: PeticionChat): Promise<
 
 /** «Preparar envío» desde el panel: deja la confirmación pendiente en la sesión, igual que al armar un paquete en el chat. */
 export async function proponerEnvioDesdePanel(
-  deps: Dependencias,
+  depsBase: Dependencias,
   sessionId: string,
   caso: string,
   fecha: string,
+  usuarioId: string | null = null,
 ): Promise<{ ok: true; respuesta: RespuestaChat } | { ok: false; error: string }> {
+  const deps: Dependencias = { ...depsBase, usuarioId, storage: ambitoDeUsuario(depsBase.storage, usuarioId) }
   const estado = await paqueteArmado(deps, caso)
   if (!estado) return { ok: false, error: "Primero procesa el caso para armar el paquete." }
   if (estado.estado_firma === "no_aplica") return { ok: false, error: "Este caso es de un portal web: no hay envío que preparar." }
   if (await deps.storage.exists(`${caso}/ENVIO-SIMULADO.md`)) return { ok: false, error: "Este caso ya tiene un envío registrado." }
-  const sesion = await cargarSesion(deps.storage, sessionId)
+  const sesion = await cargarSesion(deps.storage, sessionId, usuarioId)
+  if (!esDeUsuario(sesion, usuarioId)) return { ok: false, error: "No encontré esa conversación." }
   const ahora = new Date().toISOString()
   const reply = await proponerEnvio(deps, caso, contexto(deps, sessionId))
   const pendiente: Pendiente = { caso, accion: "simular_envio" }
   sesion.pendiente = pendiente
   sesion.historial.push({ rol: "user", texto: `[Panel] Preparar el envío del caso ${caso}`, ts: ahora }, { rol: "assistant", texto: reply, ts: ahora, toolCalls: [], needsConfirmation: true })
-  await deps.storage.saveSession(sessionId, sesion)
+  sesion.actualizada = ahora
+  sesion.resumen = { caso, estado: "en_curso" }
+  await deps.storage.saveSession(sessionId, sesion, usuarioId)
   return { ok: true, respuesta: { sessionId, reply, toolCalls: [], needsConfirmation: true, pendiente, modo: deps.llm ? "modelo" : "sin_modelo", fechaReferencia: fecha } }
 }
 

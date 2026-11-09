@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { idSesionSeguro, rutaSegura, type LogEntry, type Storage, type UsoDiario } from "./types"
+import { idSesionSeguro, rutaSegura, type LogEntry, type SesionGuardada, type Storage, type UsoDiario } from "./types"
 
 const TIPOS: Record<string, string> = {
   md: "text/markdown",
@@ -13,6 +13,7 @@ interface FilaLog {
   ts: string
   caso: string | null
   session_id: string | null
+  user_id?: string | null
   herramienta: string
   ok: boolean
   resumen: string
@@ -77,6 +78,7 @@ export class SupabaseStorage implements Storage {
       ts: entry.ts,
       caso: entry.caso,
       session_id: entry.sessionId ?? null,
+      user_id: entry.userId ?? null,
       herramienta: entry.herramienta,
       ok: entry.ok,
       resumen: entry.resumen,
@@ -85,31 +87,42 @@ export class SupabaseStorage implements Storage {
     if (error) throw new Error(`no se pudo registrar el log: ${error.message}`)
   }
 
-  async readLogs(caso?: string): Promise<LogEntry[]> {
+  async readLogs(caso?: string, userId?: string | null): Promise<LogEntry[]> {
     let consulta = this.client.from("logs").select("*").order("ts", { ascending: true })
     if (caso) consulta = consulta.eq("caso", caso)
+    if (userId) consulta = consulta.eq("user_id", userId)
     const { data, error } = await consulta
     if (error || !data) return []
     return (data as FilaLog[]).map((f) => ({
       ts: f.ts,
       caso: f.caso,
       sessionId: f.session_id ?? undefined,
+      userId: f.user_id ?? null,
       herramienta: f.herramienta,
       ok: f.ok,
       resumen: f.resumen,
     }))
   }
 
-  async saveSession(id: string, data: unknown): Promise<void> {
+  async saveSession(id: string, data: unknown, userId?: string | null): Promise<void> {
     const { error } = await this.client
       .from("sessions")
-      .upsert({ id: idSesionSeguro(id), data, updated_at: new Date().toISOString() })
+      .upsert({ id: idSesionSeguro(id), data, user_id: userId ?? null, updated_at: new Date().toISOString() })
     if (error) throw new Error(`no se pudo guardar la sesión: ${error.message}`)
   }
 
   async loadSession(id: string): Promise<unknown | null> {
     const { data } = await this.client.from("sessions").select("data").eq("id", idSesionSeguro(id)).maybeSingle()
     return data ? (data as { data: unknown }).data : null
+  }
+
+  async listSessions(userId: string | null, limite = 50): Promise<SesionGuardada[]> {
+    // Solo se trae el resumen (no el historial completo) y siempre filtrado por usuario.
+    const base = this.client.from("sessions").select("id, updated_at, resumen:data->resumen")
+    const filtrada = userId === null ? base.is("user_id", null) : base.eq("user_id", userId)
+    const { data, error } = await filtrada.order("updated_at", { ascending: false }).limit(limite)
+    if (error || !data) return []
+    return (data as { id: string; updated_at: string; resumen: unknown }[]).map((f) => ({ id: f.id, updatedAt: f.updated_at, resumen: f.resumen }))
   }
 
   async addUsage(dia: string, uso: UsoDiario): Promise<UsoDiario> {

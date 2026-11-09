@@ -13,7 +13,7 @@ export async function simularEnvio(caso: string, confirmado: boolean, ctx: ToolC
   if (confirmado !== true) return fail("requiere confirmación explícita", "requiere_confirmacion")
   const dir = await resolverCaso(caso, ctx)
   if (!dir.ok) return dir
-  const storage = getStorage(ctx.directory)
+  const storage = getStorage(ctx.directory, ctx.userId)
 
   const bytes = await storage.readFile(`${caso}/estado.json`)
   if (!bytes) return fail("el paquete aún no está armado: ejecute proveedor_armar_paquete primero", "paquete_no_armado")

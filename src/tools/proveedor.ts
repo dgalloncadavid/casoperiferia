@@ -45,7 +45,7 @@ function herramienta<S extends z.ZodRawShape, D>(
       const candidato = (args as { caso?: unknown } | null)?.caso
       const caso = typeof candidato === "string" && CASO_RE.test(candidato) ? candidato : null
       try {
-        await getStorage(ctx.directory).appendLog({
+        await getStorage(ctx.directory, ctx.userId).appendLog({
           ts: new Date().toISOString(),
           herramienta: nombre,
           ok: res.ok,
@@ -53,6 +53,7 @@ function herramienta<S extends z.ZodRawShape, D>(
           resumen: res.ok ? def.resumen(res.data) : `${res.codigo ?? "error"}: ${res.error}`.slice(0, 300),
           caso,
           sessionId: ctx.sessionId,
+          userId: ctx.userId ?? null,
         })
       } catch {
         // un fallo de log no debe romper la herramienta

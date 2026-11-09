@@ -39,12 +39,29 @@
   };
 
   // ---------- estado ----------
-  const estado = { fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, vista: "caso", sessionId: null, ocupado: false };
+  const estado = {
+    fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, vista: "caso", sessionId: null, ocupado: false,
+    auth: { habilitada: false, cliente: null, usuario: null }, soloLectura: false, sesiones: null,
+    detalleAbierto: false, bandejaAbierta: false, overlay: null, sugerido: "",
+  };
+
+  /** Cabeceras con el token de la sesión (el cliente de Supabase lo renueva solo). */
+  async function cabeceras(extra) {
+    const h = Object.assign({}, extra || {});
+    if (estado.auth.cliente) {
+      const r = await estado.auth.cliente.auth.getSession();
+      if (r.data && r.data.session) h.authorization = "Bearer " + r.data.session.access_token;
+    }
+    return h;
+  }
 
   async function api(ruta, opciones) {
     try {
-      const r = await fetch(ruta, opciones);
+      const op = Object.assign({}, opciones || {});
+      op.headers = await cabeceras(op.headers);
+      const r = await fetch(ruta, op);
       const data = await r.json().catch(() => ({}));
+      if (r.status === 401 && estado.auth.habilitada) { mostrarIngreso("Tu sesión terminó. Ingresa de nuevo."); }
       return { ok: r.ok, status: r.status, data };
     } catch (e) {
       return { ok: false, status: 0, data: { error: "No pude conectar con el servidor. Revisa tu conexión e inténtalo de nuevo." } };
@@ -53,28 +70,107 @@
   const q = () => "fecha=" + encodeURIComponent(estado.fecha);
   const post = (ruta, cuerpo) => api(ruta, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(cuerpo) });
 
-  // ---------- pestañas (pantallas angostas) ----------
-  function pestana(id, foco) {
-    for (const [pid, sec] of [["pest-bandeja", "bandeja"], ["pest-principal", "principal"], ["pest-chat", "chat"]]) {
-      const activa = pid === id;
-      $(pid).setAttribute("aria-selected", String(activa));
-      $(pid).tabIndex = activa ? 0 : -1;
-      $(sec).classList.toggle("activa", activa);
-    }
-    if (foco) $(id).focus();
+  // ---------- layout: bandeja | chat | detalle ----------
+  const mqDetalle = window.matchMedia("(max-width: 1279px)");   // el detalle pasa a drawer sobre el chat
+  const mqBandeja = window.matchMedia("(max-width: 899px)");    // la bandeja también pasa a drawer
+  const mqQuieto = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const REGIONES = ["encabezado", "panel-bandeja", "chat", "panel-detalle"];
+  const MS_PANEL = 180;
+
+  function mostrarPanel(nodo) { nodo.classList.remove("saliendo"); nodo.hidden = false; }
+  function ocultarPanel(nodo, despues) {
+    if (nodo.hidden) { if (despues) despues(); return; }
+    if (mqQuieto.matches) { nodo.hidden = true; if (despues) despues(); return; }
+    nodo.classList.add("saliendo");
+    setTimeout(() => { nodo.hidden = true; nodo.classList.remove("saliendo"); if (despues) despues(); }, MS_PANEL);
   }
-  document.querySelectorAll(".pestanas button").forEach((b, i, todas) => {
-    b.addEventListener("click", () => pestana(b.id, false));
-    b.addEventListener("keydown", (e) => {
-      const paso = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-      if (paso) { e.preventDefault(); pestana(todas[(i + paso + todas.length) % todas.length].id, true); }
-    });
+
+  /** Mientras un panel hace de drawer, lo demás queda inerte y el foco no se escapa. */
+  function overlayNecesario() {
+    if (estado.detalleAbierto && mqDetalle.matches) return "panel-detalle";
+    if (estado.bandejaAbierta && mqBandeja.matches) return "panel-bandeja";
+    return null;
+  }
+  function sincronizarOverlay(focoAntes) {
+    const quiere = overlayNecesario();
+    const fondo = $("fondo-paneles");
+    if (quiere && !estado.overlay) estado.overlay = { panel: quiere, focoAntes: focoAntes || document.activeElement };
+    if (quiere) {
+      estado.overlay.panel = quiere;
+      fondo.hidden = false; fondo.classList.remove("saliendo");
+      for (const id of REGIONES) $(id).inert = id !== quiere;
+    } else if (estado.overlay) {
+      for (const id of REGIONES) $(id).inert = false;
+      ocultarPanel(fondo);
+      const antes = estado.overlay.focoAntes;
+      estado.overlay = null;
+      if (antes && document.contains(antes) && !antes.closest("[hidden]")) antes.focus();
+    }
+  }
+
+  function abrirDetalle(focoAntes) {
+    estado.detalleAbierto = true;
+    $("estructura").classList.add("con-detalle");
+    mostrarPanel($("panel-detalle"));
+    $("abrir-detalle").hidden = true;
+    sincronizarOverlay(focoAntes);
+  }
+  function cerrarDetalle() {
+    estado.detalleAbierto = false;
+    $("estructura").classList.remove("con-detalle");
+    ocultarPanel($("panel-detalle"));
+    $("abrir-detalle").hidden = !estado.seleccion && estado.vista !== "reporte";
+    sincronizarOverlay();
+  }
+  function abrirBandeja() { estado.bandejaAbierta = true; mostrarPanel($("panel-bandeja")); sincronizarOverlay(document.activeElement); const f = $("panel-bandeja").querySelector("button"); if (f) f.focus(); }
+  function cerrarBandeja() {
+    estado.bandejaAbierta = false;
+    if (mqBandeja.matches) ocultarPanel($("panel-bandeja"));
+    sincronizarOverlay();
+  }
+  function sincronizarLayout() {
+    if (!mqBandeja.matches) { estado.bandejaAbierta = false; $("panel-bandeja").hidden = false; $("panel-bandeja").classList.remove("saliendo"); }
+    else if (!estado.bandejaAbierta) $("panel-bandeja").hidden = true;
+    $("abrir-bandeja").hidden = !mqBandeja.matches;
+    sincronizarOverlay();
+    const alto = $("encabezado").offsetHeight;
+    document.documentElement.style.setProperty("--alto-enc", alto + "px");
+  }
+  mqDetalle.addEventListener("change", sincronizarLayout);
+  mqBandeja.addEventListener("change", sincronizarLayout);
+  window.addEventListener("resize", () => document.documentElement.style.setProperty("--alto-enc", $("encabezado").offsetHeight + "px"));
+  $("abrir-bandeja").addEventListener("click", abrirBandeja);
+  $("cerrar-bandeja").addEventListener("click", cerrarBandeja);
+  $("abrir-detalle").addEventListener("click", () => abrirDetalle(document.activeElement));
+  $("cerrar-detalle").addEventListener("click", cerrarDetalle);
+  $("fondo-paneles").addEventListener("click", () => { if (estado.overlay && estado.overlay.panel === "panel-detalle") cerrarDetalle(); else cerrarBandeja(); });
+  document.addEventListener("keydown", (e) => {
+    if (!estado.overlay) return;
+    if (e.key === "Escape") { e.preventDefault(); if (estado.overlay.panel === "panel-detalle") cerrarDetalle(); else cerrarBandeja(); return; }
+    if (e.key === "Tab") { // el foco no sale del drawer abierto
+      const f = [...$(estado.overlay.panel).querySelectorAll("button:not([disabled]), a[href], input, [tabindex='0']")].filter((x) => x.offsetParent !== null);
+      if (!f.length) return;
+      const [primero, ultimo] = [f[0], f[f.length - 1]];
+      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
+    }
   });
-  const angosto = () => window.matchMedia("(max-width: 1099px)").matches;
 
   // ---------- bandeja ----------
+  /** Al repintar una lista se destruyen sus botones: el foco debe volver al equivalente nuevo. */
+  function recordarFoco(contenedor, atributo) {
+    const a = document.activeElement;
+    return a && contenedor.contains(a) && a.dataset ? a.dataset[atributo] : null;
+  }
+  function devolverFoco(contenedor, atributo, valor) {
+    if (!valor) return;
+    const nuevo = [...contenedor.querySelectorAll("button")].find((b) => b.dataset[atributo] === valor);
+    if (nuevo) nuevo.focus({ preventScroll: true });
+  }
+
   function renderBandeja() {
     const ul = $("lista-casos");
+    const focoCaso = recordarFoco(ul, "caso");
     ul.textContent = "";
     for (const c of estado.casos) {
       const info = ESTADOS[c.estado];
@@ -94,6 +190,7 @@
       ul.appendChild(li);
     }
     iconos();
+    devolverFoco(ul, "caso", focoCaso);
   }
   // Flechas arriba/abajo dentro de la bandeja
   $("lista-casos").addEventListener("keydown", (e) => {
@@ -110,32 +207,51 @@
     if (!r.ok) return mostrarError(r.data.error || "No pude cargar la bandeja.");
     estado.casos = r.data.casos;
     renderBandeja();
+    renderConversaciones();
   }
 
   // ---------- panel del caso ----------
-  function limpiarPrincipal() { const p = $("principal"); p.textContent = ""; return p; }
+  function limpiarPrincipal() { const p = $("detalle-contenido"); p.textContent = ""; return p; }
   function mostrarError(texto) {
-    const p = $("principal");
+    if ($("panel-detalle").hidden) { const a = $("aviso-chat"); a.hidden = false; a.textContent = texto; a.setAttribute("role", "alert"); return; }
     const aviso = el("div", "aviso", texto);
     aviso.setAttribute("role", "alert");
-    p.prepend(aviso);
+    $("detalle-contenido").prepend(aviso);
   }
 
-  async function seleccionar(caso, mover) {
+  /** Elegir un caso abre su detalle y deja el chat enfocado en él. No manda nada al modelo. */
+  async function seleccionar(caso, mover, abrir) {
+    const abrirPanel = abrir !== false;
+    if (estado.bandejaAbierta) cerrarBandeja();
     estado.seleccion = caso;
     estado.vista = "caso";
     renderBandeja();
-    await cargarCaso(mover);
-    if (mover && angosto()) pestana("pest-principal", false);
+    if (abrirPanel) abrirDetalle(document.activeElement);
+    await cargarCaso(mover && abrirPanel);
+    enfocarChatEnCaso();
+  }
+
+  function enfocarChatEnCaso() {
+    const v = estado.detalle;
+    const hint = $("caso-foco");
+    if (!v || estado.vista !== "caso") { hint.textContent = ""; return; }
+    hint.textContent = "Caso en foco: " + v.cliente;
+    // Sugerencia lista para enviar; solo se escribe si el campo está vacío y la envía la persona.
+    const entrada = $("entrada");
+    if (!estado.soloLectura && (entrada.value === "" || entrada.value === estado.sugerido)) {
+      estado.sugerido = "Procesa el caso " + v.caso + ".";
+      entrada.value = estado.sugerido;
+    }
   }
 
   async function cargarCaso(moverFoco) {
     if (!estado.seleccion) return;
-    $("principal").setAttribute("aria-busy", "true");
+    $("detalle-contenido").setAttribute("aria-busy", "true");
     const r = await api("/api/casos/" + encodeURIComponent(estado.seleccion) + "?" + q());
-    $("principal").removeAttribute("aria-busy");
+    $("detalle-contenido").removeAttribute("aria-busy");
     if (!r.ok) { limpiarPrincipal(); mostrarError(r.data.error || "No pude cargar el caso."); return; }
     estado.detalle = r.data;
+    $("h-detalle").textContent = "Detalle del caso";
     renderCaso(r.data, moverFoco);
   }
 
@@ -177,12 +293,15 @@
     if (acc.children.length) cab.appendChild(acc);
     p.appendChild(cab);
 
-    // Decisiones una por una
-    const porConfirmar = v.campos.filter((c) => c.estado === "requiere_confirmacion");
-    const sinDecidir = porConfirmar.filter((c) => !c.decision);
-    const paraRevisar = porConfirmar.filter((c) => c.decision === "revisar");
-    if (sinDecidir.length) p.appendChild(tarjetaDecision(sinDecidir[0], porConfirmar.length - sinDecidir.length + 1, porConfirmar.length));
-    if (paraRevisar.length) p.appendChild(bloqueRevisar(paraRevisar));
+    // Las confirmaciones una por una viven en el chat (zona fija sobre el campo de texto).
+    renderDecisiones();
+    const pend = v.campos.filter((c) => c.estado === "requiere_confirmacion" && c.decision !== "confirmado");
+    if (pend.length) {
+      const t = el("section", "tarjeta bloque");
+      t.appendChild(el("p", "", pend.length === 1 ? "Hay 1 valor por confirmar." : "Hay " + pend.length + " valores por confirmar."));
+      t.appendChild(boton("Ir a la confirmación en el chat", "message-square", "", () => { const h = $("h-decision") || $("h-chat"); h.tabIndex = -1; h.focus(); }));
+      p.appendChild(t);
+    }
 
     // Soportes
     p.appendChild(seccionSoportes(v));
@@ -202,6 +321,21 @@
     if (moverFoco) h.focus();
   }
 
+  /** Tarjetas «valor 1 de N» y la lista de valores para revisar con el cliente, fijas en el chat. */
+  function renderDecisiones() {
+    const z = $("decision-chat");
+    z.textContent = "";
+    const v = estado.detalle;
+    const campos = v && v.procesado && !estado.soloLectura ? v.campos : [];
+    const porConfirmar = campos.filter((c) => c.estado === "requiere_confirmacion");
+    const sinDecidir = porConfirmar.filter((c) => !c.decision);
+    const paraRevisar = porConfirmar.filter((c) => c.decision === "revisar");
+    if (sinDecidir.length) z.appendChild(tarjetaDecision(sinDecidir[0], porConfirmar.length - sinDecidir.length + 1, porConfirmar.length));
+    if (paraRevisar.length) z.appendChild(bloqueRevisar(paraRevisar));
+    z.hidden = z.children.length === 0;
+    iconos();
+  }
+
   function tarjetaDecision(c, n, total) {
     const s = el("section", "decision");
     s.setAttribute("aria-labelledby", "h-decision");
@@ -214,8 +348,13 @@
     fila("Campo", c.etiqueta);
     fila("Valor propuesto", c.valor || "—", "valor-grande");
     fila("Por qué", c.razon || c.nota || "Hay que confirmarlo antes de firmar.");
-    fila("Regla", c.regla || "Los valores con poca seguridad se confirman antes de firmar.");
     s.appendChild(dl);
+    // La regla va en un desplegable: abierto en pantallas anchas y plegado en las angostas, para no aplastar el chat.
+    const det = el("details", "regla-detalle");
+    det.open = window.matchMedia("(min-width: 601px)").matches;
+    det.appendChild(el("summary", "", "Regla"));
+    det.appendChild(el("p", "", c.regla || "Los valores con poca seguridad se confirman antes de firmar."));
+    s.appendChild(det);
     const acc = el("div", "acciones");
     acc.appendChild(boton("Confirmar este valor", "check", "primario", () => decidir(c.etiqueta, "confirmado")));
     acc.appendChild(boton("Revisar con el cliente", "x", "", () => decidir(c.etiqueta, "revisar")));
@@ -351,11 +490,14 @@
     if (v.archivos.length) {
       const caja = el("div", "archivos");
       for (const a of v.archivos) {
-        const link = el("a");
-        link.href = "/api/paquetes/" + encodeURIComponent(v.caso) + "/" + a.split("/").map(encodeURIComponent).join("/");
+        const ruta = "/api/paquetes/" + encodeURIComponent(v.caso) + "/" + a.split("/").map(encodeURIComponent).join("/");
         const nombre = ARCHIVOS[a] || (a.startsWith("paquete/soportes/") ? "Soporte: " + a.slice("paquete/soportes/".length) : a);
-        link.append(icono("download"), document.createTextNode(nombre));
-        caja.appendChild(link);
+        // Con login, un enlace normal no lleva el token: se descarga con fetch y se entrega como archivo.
+        const b = el("button", "enlace");
+        b.type = "button";
+        b.append(icono("download"), document.createTextNode(nombre));
+        b.addEventListener("click", () => descargar(ruta, a.split("/").pop()));
+        caja.appendChild(b);
       }
       s.appendChild(caja);
     } else s.appendChild(el("p", "ayuda", "Todavía no hay archivos: se generan al procesar el caso."));
@@ -375,17 +517,18 @@
     anunciar("Caso procesado.");
     estado.detalle = r.data.caso;
     renderCaso(r.data.caso, true);
-    cargarBandeja();
+    refrescarListas();
   }
 
   async function decidir(campo, decision) {
     const r = await post("/api/casos/" + encodeURIComponent(estado.seleccion) + "/decisiones", { campo: campo, decision: decision, fecha: estado.fecha });
     if (!r.ok) return mostrarError(r.data.error || "No pude guardar tu decisión.");
     anunciar(decision === "confirmado" ? "Valor confirmado." : "Valor marcado para revisar con el cliente.");
-    renderCaso(r.data.caso, false);
-    const foco = $("h-decision") || $("h-caso");
-    if (foco) foco.focus();
-    cargarBandeja();
+    estado.detalle = r.data.caso;
+    renderCaso(r.data.caso, false);   // también vuelve a pintar las tarjetas del chat
+    const foco = $("h-decision") || $("h-chat");
+    foco.tabIndex = -1; foco.focus();
+    refrescarListas();
   }
 
   async function prepararEnvio() {
@@ -394,14 +537,29 @@
     pintarMensaje({ rol: "user", texto: "Preparar el envío de este caso" }, false);
     pintarMensaje({ rol: "assistant", texto: r.data.reply, toolCalls: [], needsConfirmation: true }, true);
     anunciar("Te pedí la confirmación del envío en la conversación.");
-    if (angosto()) pestana("pest-chat", false);
-    $("chat").scrollIntoView({ block: "nearest" });
+    if (estado.overlay && estado.overlay.panel === "panel-detalle") cerrarDetalle(); // en pantallas angostas el detalle tapa el chat
+    refrescarListas();
+  }
+
+  async function descargar(ruta, nombre) {
+    try {
+      const r = await fetch(ruta, { headers: await cabeceras() });
+      if (r.status === 401 && estado.auth.habilitada) return mostrarIngreso("Tu sesión terminó. Ingresa de nuevo.");
+      if (!r.ok) return mostrarError("No pude descargar el archivo.");
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = url; a.download = nombre;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { mostrarError("No pude descargar el archivo."); }
   }
 
   // ---------- reporte ----------
   async function verReporte() {
     estado.vista = "reporte";
     renderBandeja();
+    abrirDetalle(document.activeElement);
+    $("h-detalle").textContent = "Reporte";
     const r = await api("/api/reporte?" + q());
     const p = limpiarPrincipal();
     if (!r.ok) return mostrarError(r.data.error || "No pude cargar el reporte.");
@@ -425,7 +583,7 @@
       const tb = el("tbody");
       for (const f of d.faltantesPorCampo) { const tr = el("tr"); tr.appendChild(el("td", "", f.campo)); tr.appendChild(el("td", "", f.casos.map((c) => c.cliente).join(", "))); tb.appendChild(tr); }
       tabla.appendChild(tb);
-      const w = el("div", "tabla-scroll"); w.appendChild(tabla); falt.appendChild(w);
+      const w = el("div", "tabla-scroll"); w.tabIndex = 0; w.setAttribute("role", "region"); w.setAttribute("aria-label", "Campos que faltan, con desplazamiento"); w.appendChild(tabla); falt.appendChild(w);
       falt.appendChild(el("p", "ayuda", "Estos datos no existen en el maestro de Periferia. No bloquean la firma, pero hay que conseguirlos."));
     }
     p.appendChild(falt);
@@ -450,12 +608,11 @@
       tb2.appendChild(tr);
     }
     t2.appendChild(tb2);
-    const w2 = el("div", "tabla-scroll"); w2.appendChild(t2); por.appendChild(w2);
+    const w2 = el("div", "tabla-scroll"); w2.tabIndex = 0; w2.setAttribute("role", "region"); w2.setAttribute("aria-label", "Pendientes y costo por caso, con desplazamiento"); w2.appendChild(t2); por.appendChild(w2);
     por.appendChild(el("p", "ayuda", "Total del modelo: " + usd(d.totalCostoUsd) + " y " + miles(d.totalTokens) + " tokens. Son estimaciones con la tabla de precios configurada; solo cuentan las conversaciones con el modelo (procesar desde el panel no cuesta)."));
     p.appendChild(por);
     iconos();
     h.focus();
-    if (angosto()) pestana("pest-principal", false);
   }
 
   // ---------- chat ----------
@@ -473,9 +630,9 @@
 
   function pintarMensaje(m, esUltimo) {
     const caja = el("div", "msg " + (m.rol === "user" ? "user" : "asistente") + (m.error ? " error" : "") + (m.needsConfirmation ? " confirmacion" : ""));
-    caja.appendChild(document.createTextNode(m.texto));
+    if (m.rol === "user") caja.appendChild(document.createTextNode(m.texto)); else textoConCampos(caja, m.texto);
     if (m.rol !== "user") pintarHerramientas(caja, m.toolCalls);
-    if (m.needsConfirmation && esUltimo) {
+    if (m.needsConfirmation && esUltimo && !estado.soloLectura) {
       const acc = el("div", "acciones");
       acc.appendChild(boton("Confirmar envío", "check", "primario", () => enviar("", true)));
       acc.appendChild(boton("Cancelar", "x", "", () => enviar("Cancelar", false)));
@@ -485,6 +642,54 @@
     lista.appendChild(caja);
     iconos();
     lista.scrollTop = lista.scrollHeight;
+    return caja;
+  }
+
+  /** Si el asistente trabajó sobre un caso distinto al que está en foco, el chat pasa a ese caso (sin abrir el detalle). */
+  async function seguirAlAsistente(llamadas) {
+    const caso = (llamadas || []).map((l) => l.args && l.args.caso).filter(Boolean).pop();
+    if (!caso) return;
+    if (caso !== estado.seleccion) await seleccionar(caso, false, false);
+    else await cargarCaso(false);
+  }
+
+  /** Los campos del caso en foco que se nombran en un mensaje del asistente se vuelven botones que abren su trazabilidad. */
+  function textoConCampos(caja, texto) {
+    const v = estado.detalle;
+    const etiquetas = v && v.campos ? [...new Set(v.campos.map((c) => c.etiqueta).filter((e) => e.length >= 3))].sort((a, b) => b.length - a.length) : [];
+    if (!etiquetas.length) { caja.appendChild(document.createTextNode(texto)); return; }
+    const escapar = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp("(?<![\\p{L}\\p{N}])(" + etiquetas.map(escapar).join("|") + ")(?![\\p{L}\\p{N}])", "u");
+    const usadas = new Set();
+    let resto = texto;
+    while (resto) {
+      const m = re.exec(resto);
+      if (!m || usadas.has(m[1])) { // una sola mención enlazada por campo y mensaje
+        if (m && usadas.has(m[1])) { caja.appendChild(document.createTextNode(resto.slice(0, m.index + m[1].length))); resto = resto.slice(m.index + m[1].length); continue; }
+        caja.appendChild(document.createTextNode(resto)); break;
+      }
+      usadas.add(m[1]);
+      caja.appendChild(document.createTextNode(resto.slice(0, m.index)));
+      const b = el("button", "enlace-campo", m[1]);
+      b.type = "button";
+      b.title = "Ver de dónde sale este campo";
+      b.addEventListener("click", () => irACampo(m[1], b));
+      caja.appendChild(b);
+      resto = resto.slice(m.index + m[1].length);
+    }
+  }
+
+  function irACampo(etiqueta, origen) {
+    abrirDetalle(origen);
+    const doIt = () => {
+      const botones = [...document.querySelectorAll("#detalle-contenido .campo-cab")];
+      const b = botones.find((x) => x.querySelector(".etq") && x.querySelector(".etq").textContent === etiqueta);
+      if (!b) return;
+      if (b.getAttribute("aria-expanded") !== "true") b.click();
+      b.scrollIntoView({ block: "center" });
+      b.focus();
+    };
+    setTimeout(doIt, 60);
   }
 
   function mostrarAviso(t) { const a = $("aviso-chat"); a.hidden = !t; a.textContent = t || ""; }
@@ -496,13 +701,18 @@
     estado.ocupado = true;
     $("enviar").disabled = true; $("pensando").hidden = false;
     document.querySelectorAll("#mensajes .acciones button").forEach((b) => { b.disabled = true; });
-    pintarMensaje({ rol: "user", texto: confirmar ? "Confirmar envío" : texto }, false);
+    const burbuja = pintarMensaje({ rol: "user", texto: confirmar ? "Confirmar envío" : texto }, false);
     $("entrada").value = "";
     const r = await post("/api/chat", { sessionId: estado.sessionId, message: texto, confirm: confirmar, fecha: estado.fecha });
-    if (!r.ok) pintarMensaje({ rol: "assistant", texto: r.data.error || "No se pudo completar la solicitud.", error: true }, false);
+    if (r.status === 401 && estado.auth.habilitada) {
+      // La sesión venció: se vuelve al ingreso, pero la conversación y lo que escribías se conservan.
+      burbuja.remove();
+      if (!confirmar) $("entrada").value = texto;
+    } else if (!r.ok) pintarMensaje({ rol: "assistant", texto: r.data.error || "No se pudo completar la solicitud.", error: true }, false);
     else {
-      estado.sessionId = r.data.sessionId; almacen("set", "sessionId", estado.sessionId);
+      estado.sessionId = r.data.sessionId; almacen("set", claveSesion(), estado.sessionId);
       mostrarAviso(r.data.aviso || "");
+      await seguirAlAsistente(r.data.toolCalls);   // primero el caso, para que los campos nombrados ya sean enlaces
       pintarMensaje({ rol: "assistant", texto: r.data.reply, toolCalls: r.data.toolCalls, needsConfirmation: r.data.needsConfirmation }, true);
       anunciar("El asistente respondió.");
       await refrescar();
@@ -510,16 +720,35 @@
     estado.ocupado = false; $("enviar").disabled = false; $("pensando").hidden = true; $("entrada").focus();
   }
 
+  function modoLectura(si, fecha) {
+    estado.soloLectura = si;
+    $("entrada").disabled = si; $("enviar").disabled = si;
+    renderDecisiones();
+    $("entrada").placeholder = si ? "Esta conversación ya terminó (solo lectura)." : "Ej.: Procesa el caso ec-corp-andina. No envíes nada todavía.";
+    const b = $("banner-lectura");
+    if (b) b.remove();
+    if (si) {
+      const caja = el("div", "aviso banner-lectura");
+      caja.id = "banner-lectura";
+      caja.appendChild(document.createTextNode("Estás viendo una conversación terminada" + (fecha ? " (" + fecha + ")" : "") + ", solo lectura. "));
+      caja.appendChild(boton("Empezar una conversación nueva", "rotate-ccw", "", () => conversacionNueva()));
+      $("chat").insertBefore(caja, $("mensajes"));
+      iconos();
+    }
+  }
+
   async function iniciarChat() {
     $("mensajes").textContent = "";
+    modoLectura(false);
     const r = await api("/api/sessions/" + encodeURIComponent(estado.sessionId));
     if (r.ok) { r.data.historial.forEach((m, i) => pintarMensaje(m, i === r.data.historial.length - 1 && Boolean(r.data.pendiente))); return; }
     pintarMensaje({ rol: "assistant", texto: "Hola. Elige un caso en la bandeja o dime cuál procesar (por ejemplo «ec-corp-andina»). Te cuento qué quedó lleno, qué falta y si el paquete está listo para firma. No envío nada sin tu confirmación." }, false);
   }
 
   // ---------- fecha de referencia ----------
+  async function refrescarListas() { await Promise.all([cargarBandeja(), cargarSesiones()]); }
   async function refrescar() {
-    await cargarBandeja();
+    await refrescarListas();
     if (estado.vista === "reporte") await verReporte();
     else if (estado.seleccion) await cargarCaso(false);
   }
@@ -527,6 +756,7 @@
     if (!f) return;
     estado.fecha = f;
     $("fecha").value = f;
+    $("fecha-texto").textContent = "Fecha de referencia: " + fechaCorta(f);
     almacen("set", "fecha", f);
     refrescar();
     anunciar("Fecha de referencia: " + fechaCorta(f));
@@ -537,22 +767,165 @@
   $("ver-reporte").addEventListener("click", verReporte);
   $("form-chat").addEventListener("submit", (e) => { e.preventDefault(); enviar($("entrada").value, false); });
   $("entrada").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar($("entrada").value, false); } });
-  $("nueva").addEventListener("click", () => { estado.sessionId = nuevoId(); almacen("set", "sessionId", estado.sessionId); mostrarAviso(""); iniciarChat(); });
+  function conversacionNueva() {
+    // El historial no se borra: la conversación anterior sigue en la lista del Historial.
+    estado.sessionId = nuevoId(); almacen("set", claveSesion(), estado.sessionId); mostrarAviso(""); iniciarChat();
+    if (estado.bandejaAbierta) cerrarBandeja();
+    $("entrada").focus();
+  }
+  $("nueva").addEventListener("click", conversacionNueva);
+
+  // ---------- ingreso y sesión ----------
+  const claveSesion = () => "sessionId" + (estado.auth.usuario ? ":" + estado.auth.usuario.id : "");
+
+  function mostrarIngreso(mensaje) {
+    $("app").hidden = true;
+    $("ingreso").hidden = false;
+    const e = $("error-ingreso");
+    e.hidden = !mensaje; e.textContent = mensaje || "";
+    $("clave").value = "";
+    document.title = "Ingresar · Registro de proveedor";
+    iconos();
+    setTimeout(() => { if (!$("ingreso").hidden) $("correo").focus(); }, 50);
+  }
+
+  $("form-ingreso").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const correo = $("correo").value.trim(), clave = $("clave").value;
+    if (!correo || !clave) { const e = $("error-ingreso"); e.hidden = false; e.textContent = "Escribe tu correo y tu contraseña."; return; }
+    const boton = $("entrar");
+    boton.disabled = true;
+    $("error-ingreso").hidden = true;
+    try {
+      const r = await estado.auth.cliente.auth.signInWithPassword({ email: correo, password: clave });
+      if (r.error) {
+        const e = $("error-ingreso"); e.hidden = false;
+        e.textContent = r.error.status === 400 || r.error.status === 401 || /invalid/i.test(r.error.message) ? "El correo o la contraseña no son correctos." : "No pude iniciar sesión. Inténtalo de nuevo en un momento.";
+        $("clave").value = ""; $("clave").focus(); // el correo se conserva; la contraseña se vuelve a escribir
+      } else { $("clave").value = ""; await entrarConSesion(r.data.session); }
+    } catch (e) {
+      const m = $("error-ingreso"); m.hidden = false; m.textContent = "No pude conectar con el servidor. Revisa tu conexión.";
+    }
+    boton.disabled = false;
+  });
+
+  async function salir() {
+    if (estado.detalleAbierto) cerrarDetalle();
+    if (estado.bandejaAbierta) cerrarBandeja();
+    if (estado.auth.cliente) await estado.auth.cliente.auth.signOut();
+    estado.auth.usuario = null; estado.casos = []; estado.sesiones = null; estado.seleccion = null; estado.detalle = null; estado.vista = "caso"; $("caso-foco").textContent = "";
+    $("mensajes").textContent = ""; limpiarPrincipal();
+    mostrarIngreso("");
+    anunciar("Cerraste sesión.");
+  }
+  $("salir").addEventListener("click", salir);
+
+  async function entrarConSesion(sesion) {
+    estado.auth.usuario = sesion && sesion.user ? { id: sesion.user.id, email: sesion.user.email } : null;
+    $("ingreso").hidden = true;
+    $("app").hidden = false;
+    document.title = "Registro de proveedor";
+    const u = $("usuario"), b = $("salir");
+    u.hidden = !estado.auth.usuario; u.textContent = estado.auth.usuario ? estado.auth.usuario.email : "";
+    b.hidden = !estado.auth.habilitada;
+    await iniciarApp();
+  }
+
+  // ---------- conversaciones (en la bandeja) ----------
+  const ESTADOS_SESION = { en_curso: "En curso", listo: "Listo", bloqueado: "Bloqueado", incompleto: "Incompleto" };
+
+  function estadoSesion(clave, texto) {
+    const e = el("span", "hist-estado es-" + clave);
+    e.appendChild(el("span", "punto"));
+    e.appendChild(document.createTextNode(texto));
+    return e;
+  }
+
+  async function cargarSesiones() {
+    const r = await api("/api/sessions");
+    estado.sesiones = r.ok ? r.data.sesiones : null;
+    renderConversaciones();
+  }
+
+  function renderConversaciones() {
+    const cont = $("lista-conv");
+    const focoConv = recordarFoco(cont, "id");
+    cont.textContent = "";
+    const sesiones = estado.sesiones;
+    if (sesiones === null) { cont.appendChild(el("p", "ayuda", "Cargando tus conversaciones…")); return; }
+    if (sesiones.length === 0) {
+      const v = el("div", "vacio-amable");
+      v.appendChild(el("p", "", "Todavía no tienes conversaciones."));
+      v.appendChild(el("p", "ayuda", "Cuando empieces una, quedará guardada aquí para que puedas volver a verla."));
+      cont.appendChild(v);
+      return;
+    }
+    const ul = el("ul", "lista-hist");
+    for (const se of sesiones) {
+      const li = el("li");
+      const b = el("button", "hist-item");
+      b.type = "button";
+      b.dataset.id = se.id;
+      if (se.id === estado.sessionId) b.setAttribute("aria-current", "true");
+      b.appendChild(el("span", "hist-fecha", se.fechaColombia));
+      const cliente = (estado.casos.find((c) => c.caso === se.caso) || {}).cliente;
+      b.appendChild(el("span", "meta", se.caso ? (cliente || se.caso) : "Sin caso todavía"));
+      b.appendChild(estadoSesion(se.estado, se.estadoTexto || ESTADOS_SESION[se.estado] || "En curso"));
+      b.appendChild(el("span", "solo-lector", se.estado === "en_curso" ? ". Se retoma." : ". Solo lectura."));
+      b.addEventListener("click", () => abrirConversacion(se));
+      li.appendChild(b); ul.appendChild(li);
+    }
+    cont.appendChild(ul);
+    devolverFoco(cont, "id", focoConv);
+  }
+
+  /** Abre la conversación en el chat central: en lectura si terminó, retomándola si sigue en curso. */
+  async function abrirConversacion(se) {
+    const r = await api("/api/sessions/" + encodeURIComponent(se.id));
+    if (!r.ok) { estado.sesiones = null; renderConversaciones(); cargarSesiones(); return; }
+    if (estado.bandejaAbierta) cerrarBandeja();
+    $("mensajes").textContent = "";
+    const terminada = r.data.resumen && r.data.resumen.estado !== "en_curso";
+    if (!terminada) { estado.sessionId = se.id; almacen("set", claveSesion(), se.id); modoLectura(false); }
+    else modoLectura(true, se.fechaColombia);
+    if (r.data.resumen && r.data.resumen.caso) await seleccionar(r.data.resumen.caso, false, false);
+    r.data.historial.forEach((m, i) => pintarMensaje(m, i === r.data.historial.length - 1 && Boolean(r.data.pendiente)));
+    renderConversaciones();
+    anunciar(terminada ? "Conversación abierta en modo lectura." : "Conversación retomada.");
+    $("h-chat").tabIndex = -1; $("h-chat").focus();
+  }
 
   // ---------- arranque ----------
-  async function arrancar() {
-    estado.sessionId = almacen("get", "sessionId") || nuevoId();
-    almacen("set", "sessionId", estado.sessionId);
+  async function iniciarApp() {
+    estado.sessionId = almacen("get", claveSesion()) || nuevoId();
+    almacen("set", claveSesion(), estado.sessionId);
     const h = await api("/api/health");
     estado.fechaDefecto = (h.data && h.data.fechaReferencia) || hoyLocal();
     const guardada = almacen("get", "fecha");
     estado.fecha = guardada && /^\d{4}-\d{2}-\d{2}$/.test(guardada) ? guardada : estado.fechaDefecto;
     $("fecha").value = estado.fecha;
-    if (h.data && h.data.modo === "sin_modelo") mostrarAviso("No hay modelo configurado: el asistente trabaja en modo sin modelo.");
-    pestana("pest-bandeja", false);
-    await cargarBandeja();
-    iniciarChat();
+    $("fecha-texto").textContent = "Fecha de referencia: " + fechaCorta(estado.fecha);
+    mostrarAviso(h.data && h.data.modo === "sin_modelo" ? "No hay modelo configurado: el asistente trabaja en modo sin modelo." : "");
+    sincronizarLayout();
+    await Promise.all([cargarBandeja(), cargarSesiones()]);
+    await iniciarChat();
     iconos();
+    $("entrada").focus();
+  }
+
+  async function arrancar() {
+    iconos();
+    let cfg = { authEnabled: false };
+    try { cfg = await (await fetch("/api/config")).json(); } catch (e) { /* sin red: se intenta sin login */ }
+    estado.auth.habilitada = Boolean(cfg.authEnabled);
+    if (!estado.auth.habilitada) { await entrarConSesion(null); return; }
+    if (!window.supabase || !cfg.supabaseUrl || !cfg.supabaseAnonKey) { mostrarIngreso("No pude cargar el inicio de sesión. Recarga la página."); return; }
+    // Solo la clave pública (anon): la service role nunca llega al navegador.
+    estado.auth.cliente = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+    estado.auth.cliente.auth.onAuthStateChange((evento) => { if (evento === "SIGNED_OUT" && estado.auth.usuario) salir(); });
+    const r = await estado.auth.cliente.auth.getSession();
+    if (r.data && r.data.session) await entrarConSesion(r.data.session);
+    else mostrarIngreso("");
   }
   arrancar();
 })();
