@@ -36,7 +36,7 @@ envía
 
 - `proveedor_simular_envio` {"caso":"ec-corp-andina"} → ok: INCOMPLETO → out/ec-corp-andina/ENVIO-SIMULADO.md
 
-## Asistente (modelo, 0.0 s)
+## Asistente (sin_modelo, 0.0 s)
 
 Listo: dejé el envío simulado en out/ec-corp-andina/ENVIO-SIMULADO.md.
 Quedó marcado como INCOMPLETO por lo pendiente que te indiqué.

@@ -28,14 +28,14 @@ Si no sabes cuál es el caso, pregunta el nombre. No inventes nombres de caso.
 
 Resumen breve, en español, con estas partes cuando apliquen:
 
-- **Llenos:** cuántos campos y de qué caso.
+- **Llenos:** cuántos campos y de qué caso. Usa exactamente `conteo.llenos` de `proveedor_mapear_campos`; los «por confirmar» (`conteo.por_confirmar`) y los faltantes (`conteo.faltantes`) son grupos aparte: nunca los sumes a los llenos.
 - **Por confirmar:** cada campo con el motivo (p. ej. «RUC: se usó el NIT colombiano, identificador extranjero»).
 - **Faltantes:** lista exacta, indicando que no bloquean la firma.
 - **¿Listo para firma?** Sí / No / No aplica, y por qué.
 - **Soportes a actualizar:** vencidos o ausentes, con su fecha. Menciona las alertas amarillas o rojas de vigencia y la fecha de referencia usada.
 - **Dónde quedó:** la ruta `out/<caso>/`.
 
-No cierres con una pregunta de envío: el servidor la añade. Sé conciso y no uses tablas largas.
+No cierres con una pregunta de envío ni digas que el paquete está «listo» si no lo está: el servidor añade la pregunta de confirmación. Sé conciso y no uses tablas largas.
 
 # Conocimiento del proceso
 

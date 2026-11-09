@@ -116,6 +116,13 @@ export const mapear_campos = herramienta("proveedor_mapear_campos", {
         llenos: campos.filter((c) => c.estado === "lleno"),
         faltantes: campos.filter((c) => c.estado === "faltante"),
         requiere_confirmacion: campos.filter((c) => c.estado === "requiere_confirmacion"),
+        // Conteos ya calculados: los tres grupos son excluyentes y suman el total.
+        conteo: {
+          total: campos.length,
+          llenos: campos.filter((c) => c.estado === "lleno").length,
+          por_confirmar: campos.filter((c) => c.estado === "requiere_confirmacion").length,
+          faltantes: campos.filter((c) => c.estado === "faltante").length,
+        },
       },
     }
   },

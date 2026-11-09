@@ -3,6 +3,8 @@ export interface LlamadaHerramienta {
   nombre: string
   /** JSON serializado, tal como lo devuelve el modelo. */
   argumentos: string
+  /** Datos opacos del proveedor que hay que devolver tal cual (Gemini 3: thought_signature). */
+  extra?: unknown
 }
 
 export type Mensaje =

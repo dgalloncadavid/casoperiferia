@@ -1,5 +1,6 @@
 // Corp Andina de punta a punta, con cada proveedor y en modo sin modelo. Guarda las transcripciones.
-// Uso: bun scripts/e2e-llm.ts            → openai, google y sin modelo (según las claves que haya en .env)
+// Uso: bun scripts/e2e-llm.ts            → openai, google, deepseek y sin modelo (según las claves que haya en .env)
+//      bun scripts/e2e-llm.ts google     → solo ese proveedor
 //      bun scripts/e2e-llm.ts sin-modelo → solo modo sin modelo
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -12,11 +13,11 @@ const directory = path.resolve(import.meta.dirname, "..")
 const PROMPT = `Procesa el caso "ec-corp-andina". Dime qué campos quedaron llenos, cuáles faltan, si el paquete está listo para firma y qué soportes debo actualizar. No envíes nada todavía.`
 
 async function correr(etiqueta: string, llm: ProveedorLLM | null): Promise<boolean> {
-  const storage = new LocalStorage(path.join(directory, "out", `e2e-${etiqueta}`))
+  const storage = new LocalStorage(path.join(directory, "out", `e2e-${etiqueta}`.replace(/[^A-Za-z0-9_-]/g, "-")))
   await storage.clean()
   setStorage(storage)
   const deps: Dependencias = { directory, storage, llm }
-  const id = `e2e-${etiqueta}-${Date.now()}`
+  const id = `e2e-${etiqueta}-${Date.now()}`.replace(/[^A-Za-z0-9_-]/g, "-")
   const lineas: string[] = [`# Transcripción: Corp Andina de punta a punta (${etiqueta})`, "", `Fecha de referencia: ${process.env.FECHA_REFERENCIA ?? "2026-09-03"}`, ""]
   const fallos: string[] = []
 
@@ -40,6 +41,7 @@ async function correr(etiqueta: string, llm: ProveedorLLM | null): Promise<boole
   afirmar(!(await storage.exists("ec-corp-andina/ENVIO-SIMULADO.md")), "envió sin confirmar")
   afirmar(/contribuyente especial/i.test(r1.reply), "la respuesta no menciona el campo faltante (contribuyente especial)")
   afirmar(/cumplimiento[ _]tributario/i.test(r1.reply), "la respuesta no menciona el soporte faltante")
+  afirmar(/\b13\b/.test(r1.reply) && !/\b14 campos/.test(r1.reply), "el conteo de llenos no es 13")
   afirmar(/RUC/.test(r1.reply), "la respuesta no menciona el RUC por confirmar")
   afirmar(!/03100012345|COLOCOBM/.test(r1.reply), "el chat repitió datos bancarios sin que se pidieran")
 
@@ -55,14 +57,15 @@ async function correr(etiqueta: string, llm: ProveedorLLM | null): Promise<boole
   return fallos.length === 0
 }
 
-const soloSinModelo = process.argv[2] === "sin-modelo"
+const filtro = process.argv[2]
+const soloSinModelo = filtro === "sin-modelo"
 let todoOk = true
 if (!soloSinModelo) {
-  for (const nombre of ["openai", "google"]) {
+  for (const nombre of ["openai", "google", "deepseek"].filter((n) => !filtro || n === filtro)) {
     const p = crearProveedorPorNombre(nombre)
     if (!p) console.log(`- ${nombre}: sin clave en .env → omitido`)
     else todoOk = (await correr(`${nombre}-${p.modelo}`, p).catch((e: unknown) => (console.log(`✗ ${nombre}: ${e instanceof Error ? e.message : e}`), false))) && todoOk
   }
 }
-todoOk = (await correr("sin-modelo", null)) && todoOk
+if (!filtro || soloSinModelo) todoOk = (await correr("sin-modelo", null)) && todoOk
 process.exit(todoOk ? 0 : 1)

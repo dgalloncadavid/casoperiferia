@@ -6,7 +6,7 @@ const num = (v: string | undefined, defecto: number): number => {
 
 export const config = {
   llmChain: () =>
-    (process.env.LLM_CHAIN ?? "openai,google")
+    (process.env.LLM_CHAIN ?? "openai,google,deepseek")
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),

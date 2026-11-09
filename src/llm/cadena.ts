@@ -30,8 +30,20 @@ function crearProveedor(nombre: string): ProveedorLLM | null {
       apiKey,
       timeoutMs,
       baseUrl: process.env.GOOGLE_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta/openai",
-      modelo: process.env.GOOGLE_MODEL ?? "gemini-2.5-flash",
+      modelo: process.env.GOOGLE_MODEL ?? "gemini-3.1-flash-lite",
       nombreEnTool: true,
+      reenviarExtra: true,
+    })
+  }
+  if (nombre === "deepseek") {
+    const apiKey = process.env.DEEPSEEK_API_KEY
+    if (!apiKey) return null
+    return new ProveedorOpenAI({
+      nombre,
+      apiKey,
+      timeoutMs,
+      baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
+      modelo: process.env.DEEPSEEK_MODEL ?? "deepseek-flash",
     })
   }
   return null

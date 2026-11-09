@@ -136,6 +136,11 @@ async function cicloConModelo(deps: Dependencias, sesion: Sesion, mensaje: strin
       resp = await llm.enviar(msgs, defs)
     } catch (e) {
       if (e instanceof CadenaAgotada) return { texto: "", llamadas, sinModelo: "proveedores_agotados" }
+      if (e instanceof ErrorLLM) {
+        // Se conservan las llamadas ya hechas en este turno para que sigan visibles.
+        await registrar(deps, sesion.id, "llm_error", false, `${e.proveedor}: ${e.message}`)
+        return { texto: `No pude consultar el modelo (${e.message}). La sesión sigue activa: puedes intentarlo de nuevo.`, llamadas }
+      }
       throw e
     }
     ultima = resp

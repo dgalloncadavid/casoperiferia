@@ -9,12 +9,14 @@ export interface OpcionesOpenAI {
   timeoutMs: number
   /** Gemini (endpoint compatible) pide `name` en los mensajes de herramienta. */
   nombreEnTool?: boolean
+  /** Gemini 3 exige devolver la thought_signature de cada llamada; los demás proveedores no deben recibirla. */
+  reenviarExtra?: boolean
 }
 
 interface Choice {
   message?: {
     content?: string | null
-    tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[]
+    tool_calls?: { id?: string; extra_content?: unknown; function?: { name?: string; arguments?: string } }[]
   }
 }
 interface Cuerpo {
@@ -23,7 +25,10 @@ interface Cuerpo {
   error?: { message?: string; code?: string | number; type?: string; status?: string }
 }
 
-function aWire(m: Mensaje, nombreEnTool: boolean): Record<string, unknown> {
+/** Valor documentado por Google para historiales que no vienen de Gemini. */
+const FIRMA_NEUTRA = { google: { thought_signature: "skip_thought_signature_validator" } }
+
+function aWire(m: Mensaje, nombreEnTool: boolean, reenviarExtra: boolean): Record<string, unknown> {
   if (m.role === "tool") {
     return { role: "tool", tool_call_id: m.llamadaId, content: m.content, ...(nombreEnTool ? { name: m.nombre } : {}) }
   }
@@ -31,7 +36,12 @@ function aWire(m: Mensaje, nombreEnTool: boolean): Record<string, unknown> {
     return {
       role: "assistant",
       content: m.content,
-      tool_calls: m.llamadas.map((l) => ({ id: l.id, type: "function", function: { name: l.nombre, arguments: l.argumentos } })),
+      tool_calls: m.llamadas.map((l) => ({
+        id: l.id,
+        type: "function",
+        function: { name: l.nombre, arguments: l.argumentos },
+        ...(reenviarExtra ? { extra_content: l.extra ?? FIRMA_NEUTRA } : {}),
+      })),
     }
   }
   return { role: m.role, content: m.content }
@@ -62,7 +72,7 @@ export class ProveedorOpenAI implements ProveedorLLM {
   async enviar(mensajes: Mensaje[], herramientas: DefHerramienta[]): Promise<RespuestaLLM> {
     const cuerpo = {
       model: this.o.modelo,
-      messages: mensajes.map((m) => aWire(m, this.o.nombreEnTool ?? false)),
+      messages: mensajes.map((m) => aWire(m, this.o.nombreEnTool ?? false, this.o.reenviarExtra ?? false)),
       ...(herramientas.length
         ? {
             tools: herramientas.map((h) => ({ type: "function", function: { name: h.name, description: h.description, parameters: limpiarEsquema(h.parameters) } })),
@@ -91,6 +101,7 @@ export class ProveedorOpenAI implements ProveedorLLM {
       id: c.id || `call_${i}`,
       nombre: c.function?.name ?? "",
       argumentos: c.function?.arguments ?? "{}",
+      ...(c.extra_content !== undefined ? { extra: c.extra_content } : {}),
     }))
     return {
       texto: msg?.content ?? null,

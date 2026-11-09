@@ -226,6 +226,12 @@ describe("cadena de proveedores", () => {
     expect(r.aviso).toContain("no están disponibles")
     expect(r.reply).toContain("parafiscales")
   })
+  test("si el modelo falla a mitad del turno, las llamadas ya hechas siguen visibles", async () => {
+    const llm = new Falso("a", [llamar("proveedor_leer_solicitud", { caso: "ec-corp-andina" }), new ErrorLLM("otro", "el proveedor respondió con error 400", "a")])
+    const r = await manejarChat(deps(llm), { sessionId: nuevaSesion(), message: "lee ec-corp-andina" })
+    expect(r.reply).toContain("No pude consultar el modelo")
+    expect(r.toolCalls.map((t) => t.nombre)).toEqual(["proveedor_leer_solicitud"])
+  })
   test("un error no recuperable se muestra claro y la sesión no muere", async () => {
     const id = nuevaSesion()
     const llm = new Falso("a", [new ErrorLLM("otro", "el proveedor respondió con error 400", "a"), decir("de vuelta")])
@@ -252,8 +258,8 @@ describe("adaptador OpenAI-compatible (fetch simulado)", () => {
   const restaurar = () => {
     globalThis.fetch = original
   }
-  const crear = (nombreEnTool = false) =>
-    new ProveedorOpenAI({ nombre: "x", baseUrl: "https://ejemplo.test/v1", apiKey: "clave-de-prueba", modelo: "m", timeoutMs: 500, nombreEnTool })
+  const crear = (nombreEnTool = false, reenviarExtra = false) =>
+    new ProveedorOpenAI({ nombre: "x", baseUrl: "https://ejemplo.test/v1", apiKey: "clave-de-prueba", modelo: "m", timeoutMs: 500, nombreEnTool, reenviarExtra })
 
   test("envía esquemas limpios, convierte herramientas y lee tool_calls y uso", async () => {
     let cuerpo: Record<string, unknown> = {}
@@ -272,6 +278,32 @@ describe("adaptador OpenAI-compatible (fetch simulado)", () => {
       expect(wire[3]).toEqual({ role: "tool", tool_call_id: "c1", content: "{}", name: "t" })
       expect(r.llamadas).toEqual([{ id: "call_0", nombre: "proveedor_leer_solicitud", argumentos: '{"caso":"x"}' }])
       expect(r.uso).toEqual({ entrada: 12, salida: 3 })
+    } finally {
+      restaurar()
+    }
+  })
+
+  test("devuelve tal cual el extra_content de las llamadas (thought_signature de Gemini 3)", async () => {
+    const enviados: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
+      enviados.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: "c9", extra_content: { google: { thought_signature: "FIRMA" } }, function: { name: "t", arguments: "{}" } }] } }] })
+    }) as unknown as typeof fetch
+    try {
+      const p = crear(false, true)
+      const r = await p.enviar([{ role: "user", content: "u" }], [])
+      expect(r.llamadas[0]?.extra).toEqual({ google: { thought_signature: "FIRMA" } })
+      await p.enviar([{ role: "user", content: "u" }, { role: "assistant", content: null, llamadas: r.llamadas }, { role: "tool", llamadaId: "c9", nombre: "t", content: "{}" }], [])
+      const wire = enviados[1]?.messages as { tool_calls?: { extra_content?: unknown }[] }[]
+      expect(wire[1]?.tool_calls?.[0]?.extra_content).toEqual({ google: { thought_signature: "FIRMA" } })
+      // Historial que viene de otro proveedor: Gemini recibe la firma neutra documentada.
+      await p.enviar([{ role: "assistant", content: null, llamadas: [{ id: "z", nombre: "t", argumentos: "{}" }] }], [])
+      const ajeno = enviados[2]?.messages as { tool_calls?: { extra_content?: unknown }[] }[]
+      expect(ajeno[0]?.tool_calls?.[0]?.extra_content).toEqual({ google: { thought_signature: "skip_thought_signature_validator" } })
+      // Un proveedor que no es Gemini nunca recibe extra_content.
+      await crear(false, false).enviar([{ role: "assistant", content: null, llamadas: [{ id: "z", nombre: "t", argumentos: "{}", extra: { google: { thought_signature: "X" } } }] }], [])
+      const otro = enviados[3]?.messages as { tool_calls?: Record<string, unknown>[] }[]
+      expect(otro[0]?.tool_calls?.[0]).not.toHaveProperty("extra_content")
     } finally {
       restaurar()
     }
