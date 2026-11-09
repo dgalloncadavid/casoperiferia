@@ -19,7 +19,7 @@ bun run dev              # http://localhost:3000  (front + API)
 
 ## Pantalla
 
-Chat al centro; a la izquierda la bandeja (casos, conversaciones, fecha de referencia y reporte); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
+Chat al centro; a la izquierda la bandeja (fecha de referencia, casos con «Ver todos los casos», conversaciones y el reporte fijo al pie); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). La ruta `#/casos` muestra **«Todos los casos»**: una tabla ordenable con búsqueda por cliente y filtro por estado, y un detalle con pestañas (Campos, Soportes, Decisiones) y «Abrir en el asistente»; con 390 px pasa a filas apiladas. Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
 
 ## Sistema visual
 
@@ -67,6 +67,7 @@ Ver [.env.example](.env.example). Las claves viven solo en el entorno del backen
 | POST | `/api/chat` | `{sessionId, message, confirm?}` → `{reply, toolCalls, needsConfirmation, modo, aviso?, fechaReferencia}` |
 | GET | `/api/sessions/:id` | Historial de la sesión |
 | GET | `/api/casos?fecha=` | Bandeja: estado de cada caso a esa fecha |
+| GET | `/api/casos/resumen?fecha=` | Una fila por caso para la tabla «Todos los casos»: campos llenos, por confirmar, soportes y última actualización |
 | GET | `/api/casos/:caso?fecha=` | Panel del caso: campos con trazabilidad, soportes, decisiones, archivos y costo |
 | POST | `/api/casos/:caso/procesar` | Procesa el caso sin modelo (no gasta tokens) |
 | POST | `/api/casos/:caso/decisiones` | Confirmar un valor o dejarlo para revisar con el cliente |

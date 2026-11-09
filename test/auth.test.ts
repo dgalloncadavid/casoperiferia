@@ -43,7 +43,7 @@ const espera = (ms: number) => new Promise((r) => setTimeout(r, ms))
 describe("login: 401 sin token válido, rutas públicas, y configuración sin secretos", () => {
   test("sin token, con token mal formado o inválido: 401 en todas las rutas protegidas", async () => {
     const rutas: [string, string][] = [
-      ["GET", "/api/casos?fecha=2026-09-03"], ["GET", "/api/casos/co-industrias-delta"], ["GET", "/api/reporte"], ["GET", "/api/sessions"],
+      ["GET", "/api/casos?fecha=2026-09-03"], ["GET", "/api/casos/resumen"], ["GET", "/api/casos/resumen?fecha=2026-09-03"], ["GET", "/api/casos/co-industrias-delta"], ["GET", "/api/reporte"], ["GET", "/api/sessions"],
       ["GET", "/api/sessions/sesion-cualquiera-1"], ["GET", "/api/paquetes/co-industrias-delta"], ["GET", "/api/paquetes/co-industrias-delta/formulario.xlsx"], ["GET", "/api/paquetes/co-industrias-delta/paquete/checklist.md"], ["POST", "/api/chat"], ["POST", "/api/casos/co-industrias-delta/procesar"],
       ["POST", "/api/casos/co-industrias-delta/decisiones"], ["POST", "/api/casos/co-industrias-delta/proponer-envio"], ["POST", "/api/reset"],
     ]
@@ -192,6 +192,22 @@ describe("casos y paquetes por usuario: el evaluador empieza limpio", () => {
     const vistaB = await json<{ archivos: string[]; campos: unknown[] }>(await get("/api/casos/co-industrias-delta?fecha=2026-09-03", "token-de-b"))
     expect(vistaB.archivos).toEqual([])
     expect(vistaB.campos).toEqual([])
+  })
+
+  test("el resumen de casos es por usuario: lo que procesa A no aparece en la tabla de B", async () => {
+    await post("token-de-a", "/api/casos/co-industrias-delta/procesar", { fecha: "2026-09-03" })
+    const resumen = async (token: string) => (await json<{ casos: { caso: string; estado: string; camposLlenos: number | null; ultimaActividad: string | null }[] }>(await get("/api/casos/resumen?fecha=2026-09-03", token))).casos
+    expect((await resumen("token-de-a")).find((c) => c.caso === "co-industrias-delta")).toMatchObject({ estado: "listo", camposLlenos: 17 })
+    const deB = await resumen("token-de-b")
+    expect(deB.map((c) => c.estado)).toEqual(["nuevo", "nuevo", "nuevo", "nuevo"])
+    expect(deB.every((c) => c.camposLlenos === null && c.ultimaActividad === null)).toBe(true)
+    // y el detalle (decisiones) tampoco se filtra entre usuarios
+    await post("token-de-a", "/api/casos/pa-logistica-istmo/procesar", { fecha: "2026-09-03" })
+    await post("token-de-a", "/api/casos/pa-logistica-istmo/decisiones", { campo: "RUC", decision: "confirmado", fecha: "2026-09-03" })
+    const detA = await json<{ decisiones: unknown[] }>(await get("/api/casos/pa-logistica-istmo?fecha=2026-09-03", "token-de-a"))
+    const detB = await json<{ decisiones: unknown[] }>(await get("/api/casos/pa-logistica-istmo?fecha=2026-09-03", "token-de-b"))
+    expect(detA.decisiones).toHaveLength(1)
+    expect(detB.decisiones).toEqual([])
   })
 
   test("los paquetes se descargan solo desde el espacio de cada usuario (B no puede bajar el de A)", async () => {

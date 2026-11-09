@@ -7,7 +7,7 @@ import { mapearCaso } from "./formulario"
 import type { EstadoCaso } from "./paquete"
 import { describirSoporte, evaluarSoportes, nombreSoporte } from "./soportes"
 import { fail, ok, type Alerta, type CampoMapeado, type EstadoSoporte, type Result, type ToolContext } from "./types"
-import { normalizar } from "./util"
+import { fechaColombia, normalizar } from "./util"
 
 export type EstadoBandeja = "nuevo" | "decision" | "listo" | "enviado"
 export type Decision = "confirmado" | "revisar"
@@ -134,6 +134,10 @@ export interface VistaCaso {
     decision: Decision | null
   }[]
   pendientes: string[]
+  /** Lo que la analista confirmó o mandó a revisar, con fecha (más reciente primero). */
+  decisiones: { etiqueta: string; valor: string | null; decision: Decision; ts: string; fechaColombia: string }[]
+  /** Última vez que algo se hizo en este caso (herramientas o decisiones), ISO; null si nunca. */
+  ultimaActividad: string | null
   faltantes: string[]
   archivos: string[]
   consumo: ConsumoCaso | null
@@ -223,11 +227,67 @@ export async function vistaCaso(caso: string, ctx: ToolContext, fecha: string): 
     })),
     campos: procesado ? vistaCampos : [],
     pendientes: procesado ? pendientes : [],
+    decisiones: Object.entries(decisiones)
+      .map(([etiqueta, d]) => {
+        const campo = campos.find((c) => c.etiqueta === etiqueta)
+        const valor = campo?.valor === undefined ? null : esSensible(campo.clave) ? enmascararCuenta(campo.valor) : campo.valor
+        return { etiqueta, valor, decision: d.decision, ts: d.ts, fechaColombia: fechaColombia(d.ts) }
+      })
+      .sort((a, b) => b.ts.localeCompare(a.ts)),
+    ultimaActividad: [logs.at(-1)?.ts, ...Object.values(decisiones).map((d) => d.ts)].filter((t): t is string => typeof t === "string").sort().at(-1) ?? null,
     faltantes: campos.filter((c) => c.estado === "faltante").map((c) => c.etiqueta),
     archivos,
     consumo: await leerConsumo(caso, ctx),
     puedeProponerEnvio: procesado && !enviado && solicitud.formato !== "portal",
   })
+}
+
+export interface FilaResumen {
+  caso: string
+  cliente: string
+  pais: string
+  formato: string
+  estado: EstadoBandeja
+  estadoTexto: string
+  procesado: boolean
+  /** Campos con dato seguro (lleno) y total pedido; null si el caso aún no se procesó. */
+  camposLlenos: number | null
+  camposTotal: number
+  /** Valores por confirmar que siguen sin confirmar; null si no se procesó. */
+  porConfirmar: number | null
+  soportesProblema: { total: number; nombres: string[] }
+  ultimaActividad: string | null
+  fechaColombia: string | null
+}
+
+/** Una fila por caso para la vista en tabla, calculada con la fecha elegida y solo con los datos del usuario. */
+export async function resumenCasos(ctx: ToolContext, fecha: string): Promise<FilaResumen[]> {
+  const filas: FilaResumen[] = []
+  for (const caso of await listarCasos(ctx)) {
+    const v = await vistaCaso(caso, ctx, fecha)
+    if (!v.ok) {
+      filas.push({ caso, cliente: caso, pais: "", formato: "", estado: "decision", estadoTexto: "Necesita tu decisión", procesado: false, camposLlenos: null, camposTotal: 0, porConfirmar: null, soportesProblema: { total: 0, nombres: [] }, ultimaActividad: null, fechaColombia: null })
+      continue
+    }
+    const d = v.data
+    const problemas = d.soportes.filter((s) => s.estado !== "vigente")
+    filas.push({
+      caso,
+      cliente: d.cliente,
+      pais: d.pais,
+      formato: d.formato,
+      estado: d.estado,
+      estadoTexto: d.estadoTexto,
+      procesado: d.procesado,
+      camposLlenos: d.procesado ? d.campos.filter((c) => c.estado === "lleno").length : null,
+      camposTotal: d.totalCampos,
+      porConfirmar: d.procesado ? d.pendientes.length : null,
+      soportesProblema: { total: problemas.length, nombres: problemas.map((s) => s.nombre) },
+      ultimaActividad: d.ultimaActividad,
+      fechaColombia: d.ultimaActividad ? fechaColombia(d.ultimaActividad) : null,
+    })
+  }
+  return filas
 }
 
 export interface FilaBandeja {

@@ -29,7 +29,7 @@
 </main>
 
 <div id="app" hidden>
-<a class="saltar" href="#chat">Saltar al chat</a>
+<a class="saltar" id="saltar" href="#chat">Saltar al chat</a>
 
 <header class="encabezado" id="encabezado">
   <div class="enc-grupo">
@@ -49,15 +49,7 @@
     <div class="panel-cab panel-cab-izq">
       <button type="button" class="btn" id="cerrar-bandeja" aria-label="Cerrar casos y conversaciones"><i data-lucide="x"></i></button>
     </div>
-    <section class="bloque" aria-labelledby="h-bandeja">
-      <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
-      <ul class="bandeja-lista" id="lista-casos"></ul>
-    </section>
-    <section class="bloque" aria-labelledby="h-conv">
-      <h2 id="h-conv"><i data-lucide="history"></i> Conversaciones</h2>
-      <div id="lista-conv"></div>
-    </section>
-    <section class="bloque pie-bandeja" aria-label="Fecha y reporte">
+    <section class="bloque bloque-fecha" aria-label="Fecha de referencia">
       <div class="fecha" role="group" aria-labelledby="etq-fecha">
         <label id="etq-fecha" for="fecha"><i data-lucide="calendar"></i> Fecha de referencia</label>
         <input type="date" id="fecha" aria-describedby="ayuda-fecha">
@@ -67,6 +59,17 @@
         </div>
       </div>
       <p class="solo-lector" id="ayuda-fecha">Los soportes se evalúan a esta fecha. Al cambiarla se recalculan la bandeja, el caso y el reporte.</p>
+    </section>
+    <section class="bloque" aria-labelledby="h-bandeja">
+      <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
+      <ul class="bandeja-lista" id="lista-casos"></ul>
+      <a class="btn btn-fantasma btn-todos" id="ver-todos" href="#/casos"><i data-lucide="table"></i> Ver todos los casos</a>
+    </section>
+    <section class="bloque" aria-labelledby="h-conv">
+      <h2 id="h-conv"><i data-lucide="history"></i> Conversaciones</h2>
+      <div id="lista-conv"></div>
+    </section>
+    <section class="bloque pie-bandeja" aria-label="Reporte">
       <button type="button" class="btn btn-reporte" id="ver-reporte"><i data-lucide="clipboard-list"></i> Reporte de faltantes y costo</button>
     </section>
   </nav>
@@ -88,6 +91,38 @@
     </form>
   </main>
 
+  <section class="centro tarjeta vista-casos" id="vista-casos" aria-labelledby="h-casos-todos" hidden>
+    <div class="casos-cab">
+      <h2 id="h-casos-todos" tabindex="-1">Todos los casos</h2>
+      <a class="enlace volver" href="#/"><i data-lucide="arrow-left"></i> Volver al asistente</a>
+    </div>
+    <div class="casos-barra" role="search">
+      <div class="campo-busqueda">
+        <label for="buscar-caso" class="solo-lector">Buscar por cliente</label>
+        <i data-lucide="search"></i>
+        <input type="search" id="buscar-caso" placeholder="Buscar por cliente" autocomplete="off">
+      </div>
+      <label for="filtro-estado" class="solo-lector">Filtrar por estado</label>
+      <select id="filtro-estado">
+        <option value="">Todos los estados</option>
+        <option value="nuevo">Nuevo</option>
+        <option value="decision">Necesita tu decisión</option>
+        <option value="listo">Listo para firma</option>
+        <option value="enviado">Enviado</option>
+      </select>
+      <label for="orden-movil" class="solo-lector">Ordenar por</label>
+      <select id="orden-movil" class="solo-movil">
+        <option value="cliente:asc">Cliente (A–Z)</option>
+        <option value="estado:asc">Estado</option>
+        <option value="camposLlenos:desc">Campos llenos</option>
+        <option value="porConfirmar:desc">Por confirmar</option>
+        <option value="soportes:desc">Soportes con problema</option>
+        <option value="ultima:desc">Última actualización</option>
+      </select>
+    </div>
+    <div id="casos-cuerpo" class="casos-cuerpo"></div>
+  </section>
+
   <aside class="panel-der" id="panel-detalle" aria-labelledby="h-detalle" hidden>
     <div class="panel-cab">
       <h2 id="h-detalle">Detalle del caso</h2>
@@ -97,6 +132,28 @@
   </aside>
 </div>
 </div>
+
+<aside class="hoja-caso" id="hoja-caso" role="dialog" aria-modal="true" aria-labelledby="h-hoja" hidden>
+  <div class="hoja-cab">
+    <div class="hoja-titulo">
+      <h2 id="h-hoja" tabindex="-1">Caso</h2>
+      <p class="meta" id="hoja-meta"></p>
+      <p class="estado" id="hoja-estado" hidden></p>
+    </div>
+    <button type="button" class="btn" id="cerrar-hoja" aria-label="Cerrar el detalle del caso"><i data-lucide="x"></i></button>
+  </div>
+  <div class="hoja-acciones"><button type="button" class="btn primario" id="abrir-en-asistente" disabled><i data-lucide="message-square"></i> Abrir en el asistente</button></div>
+  <div class="pestanas-hoja" role="tablist" aria-label="Detalle del caso">
+    <button type="button" role="tab" class="pest" id="pest-campos" aria-controls="panel-campos" aria-selected="true">Campos</button>
+    <button type="button" role="tab" class="pest" id="pest-soportes" aria-controls="panel-soportes" aria-selected="false" tabindex="-1">Soportes</button>
+    <button type="button" role="tab" class="pest" id="pest-decisiones" aria-controls="panel-decisiones" aria-selected="false" tabindex="-1">Decisiones</button>
+  </div>
+  <div class="hoja-cuerpo">
+    <div role="tabpanel" id="panel-campos" aria-labelledby="pest-campos" tabindex="0"></div>
+    <div role="tabpanel" id="panel-soportes" aria-labelledby="pest-soportes" tabindex="0" hidden></div>
+    <div role="tabpanel" id="panel-decisiones" aria-labelledby="pest-decisiones" tabindex="0" hidden></div>
+  </div>
+</aside>
 
 <div class="drawer-fondo" id="fondo-paneles" hidden></div>
 <div class="solo-lector" id="anuncio" role="status" aria-live="polite"></div>

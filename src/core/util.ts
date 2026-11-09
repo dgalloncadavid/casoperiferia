@@ -41,3 +41,12 @@ export function agrupar(n: number): string {
 export function linea(texto: string): string {
   return texto.replace(/[\r\n]+/g, " ").trim()
 }
+
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+/** «9 nov 2026, 3:42 p. m.» en hora de Colombia. Colombia es UTC-5 todo el año (sin horario de verano), así que no depende de la ICU del entorno. */
+export const fechaColombia = (iso: string): string => {
+  const d = new Date(new Date(iso).getTime() - 5 * 3_600_000)
+  const h = d.getUTCHours()
+  const hora12 = h % 12 === 0 ? 12 : h % 12
+  return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hora12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${h < 12 ? "a. m." : "p. m."}`
+}

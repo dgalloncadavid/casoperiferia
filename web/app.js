@@ -44,6 +44,8 @@
     fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, vista: "caso", sessionId: null, ocupado: false,
     auth: { habilitada: false, cliente: null, usuario: null }, soloLectura: false, sesiones: null,
     detalleAbierto: false, bandejaAbierta: false, overlay: null, sugerido: "",
+    ruta: "asistente", resumen: null, resumenEstado: "cargando", filtro: { texto: "", estado: "" }, orden: { col: "cliente", dir: "asc" },
+    hoja: { abierta: false, caso: null, pestana: "campos", datos: null },
   };
 
   /** Cabeceras con el token de la sesión (el cliente de Supabase lo renueva solo). */
@@ -75,7 +77,7 @@
   const mqDetalle = window.matchMedia("(max-width: 1279px)");   // el detalle pasa a drawer sobre el chat
   const mqBandeja = window.matchMedia("(max-width: 899px)");    // la bandeja también pasa a drawer
   const mqQuieto = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const REGIONES = ["encabezado", "panel-bandeja", "chat", "panel-detalle"];
+  const REGIONES = ["encabezado", "panel-bandeja", "chat", "vista-casos", "panel-detalle", "hoja-caso"];
   const MS_PANEL = 180;
 
   function mostrarPanel(nodo) { nodo.classList.remove("saliendo"); nodo.hidden = false; }
@@ -88,6 +90,8 @@
 
   /** Mientras un panel hace de drawer, lo demás queda inerte y el foco no se escapa. */
   function overlayNecesario() {
+    if (estado.hoja.abierta) return "hoja-caso";
+    if (estado.ruta === "casos") return estado.bandejaAbierta && mqBandeja.matches ? "panel-bandeja" : null; // el detalle derecho no existe en la vista de tabla
     if (estado.detalleAbierto && mqDetalle.matches) return "panel-detalle";
     if (estado.bandejaAbierta && mqBandeja.matches) return "panel-bandeja";
     return null;
@@ -140,14 +144,20 @@
   mqDetalle.addEventListener("change", sincronizarLayout);
   mqBandeja.addEventListener("change", sincronizarLayout);
   window.addEventListener("resize", () => document.documentElement.style.setProperty("--alto-enc", $("encabezado").offsetHeight + "px"));
+  function cerrarOverlayActivo() {
+    const p = estado.overlay && estado.overlay.panel;
+    if (p === "hoja-caso") cerrarHoja();
+    else if (p === "panel-detalle") cerrarDetalle();
+    else cerrarBandeja();
+  }
   $("abrir-bandeja").addEventListener("click", abrirBandeja);
   $("cerrar-bandeja").addEventListener("click", cerrarBandeja);
   $("abrir-detalle").addEventListener("click", () => abrirDetalle(document.activeElement));
   $("cerrar-detalle").addEventListener("click", cerrarDetalle);
-  $("fondo-paneles").addEventListener("click", () => { if (estado.overlay && estado.overlay.panel === "panel-detalle") cerrarDetalle(); else cerrarBandeja(); });
+  $("fondo-paneles").addEventListener("click", () => cerrarOverlayActivo());
   document.addEventListener("keydown", (e) => {
     if (!estado.overlay) return;
-    if (e.key === "Escape") { e.preventDefault(); if (estado.overlay.panel === "panel-detalle") cerrarDetalle(); else cerrarBandeja(); return; }
+    if (e.key === "Escape") { e.preventDefault(); cerrarOverlayActivo(); return; }
     if (e.key === "Tab") { // el foco no sale del drawer abierto
       const f = [...$(estado.overlay.panel).querySelectorAll("button:not([disabled]), a[href], input, [tabindex='0']")].filter((x) => x.offsetParent !== null);
       if (!f.length) return;
@@ -235,6 +245,7 @@
 
   /** Elegir un caso abre su detalle y deja el chat enfocado en él. No manda nada al modelo. */
   async function seleccionar(caso, mover, abrir) {
+    if (estado.ruta === "casos") navegar("#/");
     const abrirPanel = abrir !== false;
     if (estado.bandejaAbierta) cerrarBandeja();
     estado.seleccion = caso;
@@ -583,6 +594,7 @@
 
   // ---------- reporte ----------
   async function verReporte() {
+    if (estado.ruta === "casos") navegar("#/");
     estado.vista = "reporte";
     renderBandeja();
     abrirDetalle(document.activeElement);
@@ -784,10 +796,361 @@
     pintarMensaje({ rol: "assistant", texto: "Hola. Elige un caso en la bandeja o dime cuál procesar (por ejemplo «ec-corp-andina»). Te cuento qué quedó lleno, qué falta y si el paquete está listo para firma. No envío nada sin tu confirmación." }, false);
   }
 
+  // ---------- ruta por hash: #/ (asistente) y #/casos (tabla) ----------
+  const rutaDeHash = () => (/^#\/casos(\/|$)/.test(location.hash) ? "casos" : "asistente");
+
+  function aplicarRuta(inicial) {
+    const r = rutaDeHash();
+    if (r === estado.ruta && !inicial) return;
+    estado.ruta = r;
+    const enCasos = r === "casos";
+    $("estructura").classList.toggle("en-casos", enCasos);
+    $("chat").hidden = enCasos;
+    $("vista-casos").hidden = !enCasos;
+    if (enCasos) $("ver-todos").setAttribute("aria-current", "page"); else $("ver-todos").removeAttribute("aria-current");
+    $("saltar").setAttribute("href", enCasos ? "#h-casos-todos" : "#chat");
+    $("saltar").textContent = enCasos ? "Saltar a la tabla" : "Saltar al chat";
+    if (!enCasos && estado.hoja.abierta) cerrarHoja(false);
+    sincronizarOverlay();
+    if (enCasos) {
+      if (estado.bandejaAbierta) cerrarBandeja();
+      cargarResumen();
+      if (!inicial) { const h = $("h-casos-todos"); h.focus(); anunciar("Todos los casos"); }
+    } else if (!inicial) anunciar("Asistente");
+  }
+  /** Cambia de vista (el botón atrás del navegador también funciona porque usa el hash). */
+  function navegar(objetivo) {
+    if (location.hash !== objetivo) location.hash = objetivo;
+    aplicarRuta();
+  }
+  window.addEventListener("hashchange", () => aplicarRuta());
+  // Si ya estás en la tabla, el enlace no cambia el hash: igual cierra el lateral (drawer) para mostrarla.
+  $("ver-todos").addEventListener("click", () => { if (estado.bandejaAbierta) cerrarBandeja(); });
+
+  // ---------- Todos los casos: tabla ----------
+  const ORDEN_ESTADO = { nuevo: 0, decision: 1, listo: 2, enviado: 3 };
+  const COLUMNAS = [
+    { col: "cliente", titulo: "Cliente" }, { col: "pais", titulo: "País" }, { col: "canal", titulo: "Canal" }, { col: "estado", titulo: "Estado" },
+    { col: "camposLlenos", titulo: "Campos llenos" }, { col: "porConfirmar", titulo: "Por confirmar" }, { col: "soportes", titulo: "Soportes vencidos o faltantes" }, { col: "ultima", titulo: "Última actualización" },
+  ];
+  const valorOrden = (f, col) => {
+    switch (col) {
+      case "cliente": return f.cliente.toLocaleLowerCase("es");
+      case "pais": return (PAISES[f.pais] || f.pais).toLocaleLowerCase("es");
+      case "canal": return (FORMATOS[f.formato] || f.formato).toLocaleLowerCase("es");
+      case "estado": return ORDEN_ESTADO[f.estado];
+      case "camposLlenos": return f.camposLlenos;
+      case "porConfirmar": return f.porConfirmar;
+      case "soportes": return f.soportesProblema.total;
+      case "ultima": return f.ultimaActividad ? Date.parse(f.ultimaActividad) : null;
+      default: return null;
+    }
+  };
+  function filasVisibles() {
+    const q = estado.filtro.texto.trim().toLocaleLowerCase("es");
+    let filas = (estado.resumen || []).filter((f) => (!q || f.cliente.toLocaleLowerCase("es").includes(q)) && (!estado.filtro.estado || f.estado === estado.filtro.estado));
+    const { col, dir } = estado.orden, signo = dir === "asc" ? 1 : -1;
+    filas = filas.slice().sort((a, b) => {
+      const x = valorOrden(a, col), y = valorOrden(b, col);
+      if (x === null && y === null) return a.cliente.localeCompare(b.cliente, "es");
+      if (x === null) return 1;            // sin dato: siempre al final
+      if (y === null) return -1;
+      const c = typeof x === "string" ? x.localeCompare(y, "es") : x - y;
+      return c !== 0 ? signo * c : a.cliente.localeCompare(b.cliente, "es");
+    });
+    return filas;
+  }
+
+  async function cargarResumen(silencioso) {
+    const cuerpo = $("casos-cuerpo");
+    if (!silencioso || !estado.resumen) { estado.resumenEstado = "cargando"; renderTabla(); }
+    const r = await api("/api/casos/resumen?" + q());
+    if (!r.ok) { estado.resumenEstado = "error"; renderTabla(); return; }
+    estado.resumen = r.data.casos;
+    estado.resumenEstado = "ok";
+    renderTabla();
+    cuerpo.removeAttribute("aria-busy");
+  }
+
+  function estadoPunto(f) {
+    const e = el("span", "estado estado-" + ESTADOS[f.estado].clase);
+    e.appendChild(document.createTextNode(f.estadoTexto));
+    return e;
+  }
+  const txtSoportes = (f) => (f.soportesProblema.total === 0 ? "0" : String(f.soportesProblema.total));
+  const txtLlenos = (f) => (f.camposLlenos === null ? "—" : f.camposLlenos + "/" + f.camposTotal);
+
+  function renderTabla() {
+    const cuerpo = $("casos-cuerpo");
+    cuerpo.textContent = "";
+    if (estado.resumenEstado === "cargando") {
+      cuerpo.setAttribute("aria-busy", "true");
+      const caja = el("div", "tabla-wrap"); caja.style.padding = "16px";
+      esqueleto(caja, 6, "sk-fila");
+      cuerpo.appendChild(caja);
+      return;
+    }
+    cuerpo.removeAttribute("aria-busy");
+    if (estado.resumenEstado === "error") {
+      const e = el("div", "estado-vacio-vista estado-error");
+      e.setAttribute("role", "alert");
+      e.appendChild(icono("triangle-alert"));
+      e.appendChild(el("p", "", "No pude cargar los casos."));
+      e.appendChild(boton("Reintentar", "refresh-cw", "", () => cargarResumen()));
+      cuerpo.appendChild(e);
+      iconos();
+      return;
+    }
+    const filas = filasVisibles();
+    if (filas.length === 0) {
+      const sinCasos = !estado.resumen || estado.resumen.length === 0;
+      const e = el("div", "estado-vacio-vista");
+      e.appendChild(icono(sinCasos ? "inbox" : "search-x"));
+      e.appendChild(el("p", "", sinCasos ? "Todavía no hay casos." : "Ningún caso coincide con tu búsqueda."));
+      cuerpo.appendChild(e);
+      iconos();
+      anunciar(sinCasos ? "No hay casos." : "Ningún caso coincide.");
+      return;
+    }
+    cuerpo.appendChild(tablaCasos(filas));
+    cuerpo.appendChild(listaMovil(filas));
+    iconos();
+  }
+
+  function tablaCasos(filas) {
+    const wrap = el("div", "tabla-wrap");
+    const t = el("table", "tabla-casos");
+    t.appendChild(el("caption", "solo-lector", "Todos los casos: " + filas.length + (filas.length === 1 ? " caso" : " casos") + ". Cada encabezado ordena la tabla."));
+    const th = el("thead"), tr = el("tr");
+    for (const c of COLUMNAS) {
+      const cel = el("th");
+      cel.scope = "col";
+      const activa = estado.orden.col === c.col;
+      if (activa) cel.setAttribute("aria-sort", estado.orden.dir === "asc" ? "ascending" : "descending");
+      const b = el("button", "th-orden");
+      b.type = "button";
+      b.appendChild(document.createTextNode(c.titulo));
+      if (activa) b.appendChild(icono(estado.orden.dir === "asc" ? "arrow-up" : "arrow-down"));
+      b.addEventListener("click", () => ordenarPor(c.col, c.titulo));
+      cel.appendChild(b); tr.appendChild(cel);
+    }
+    th.appendChild(tr); t.appendChild(th);
+    const tb = el("tbody");
+    for (const f of filas) {
+      const fila = el("tr");
+      fila.dataset.caso = f.caso;
+      const c1 = el("td"); const bt = el("button", "fila-cliente"); bt.type = "button"; bt.textContent = f.cliente;
+      bt.addEventListener("click", (e) => { e.stopPropagation(); abrirHoja(f.caso, bt); });
+      c1.appendChild(bt); fila.appendChild(c1);
+      fila.appendChild(el("td", "", PAISES[f.pais] || f.pais));
+      fila.appendChild(el("td", "", FORMATOS[f.formato] || f.formato));
+      const ce = el("td"); ce.appendChild(estadoPunto(f)); fila.appendChild(ce);
+      fila.appendChild(el("td", "num", txtLlenos(f)));
+      fila.appendChild(el("td", "num", f.porConfirmar === null ? "—" : String(f.porConfirmar)));
+      const cs = el("td"); cs.appendChild(el("span", "num", txtSoportes(f)));
+      if (f.soportesProblema.total) cs.appendChild(el("span", "sub-meta", f.soportesProblema.nombres.join(", ")));
+      fila.appendChild(cs);
+      fila.appendChild(el("td", "", f.fechaColombia || "—"));
+      fila.addEventListener("click", () => abrirHoja(f.caso, bt));
+      tb.appendChild(fila);
+    }
+    t.appendChild(tb); wrap.appendChild(t);
+    return wrap;
+  }
+
+  /** En pantallas angostas la tabla pasa a filas apiladas. */
+  function listaMovil(filas) {
+    const ul = el("ul", "casos-lista-movil");
+    ul.setAttribute("aria-label", "Casos");
+    for (const f of filas) {
+      const li = el("li"), b = el("button", "fila-movil");
+      b.type = "button";
+      b.dataset.caso = f.caso;
+      b.appendChild(el("span", "fila-cliente", f.cliente));
+      b.appendChild(estadoPunto(f));
+      b.appendChild(el("span", "meta", [PAISES[f.pais] || f.pais, FORMATOS[f.formato] || f.formato].join(" · ")));
+      b.appendChild(el("span", "", "Campos llenos: " + txtLlenos(f) + " · Por confirmar: " + (f.porConfirmar === null ? "—" : f.porConfirmar)));
+      b.appendChild(el("span", "", "Soportes vencidos o faltantes: " + txtSoportes(f) + (f.soportesProblema.total ? " (" + f.soportesProblema.nombres.join(", ") + ")" : "")));
+      b.appendChild(el("span", "meta", "Actualizado: " + (f.fechaColombia || "—")));
+      b.addEventListener("click", () => abrirHoja(f.caso, b));
+      li.appendChild(b); ul.appendChild(li);
+    }
+    return ul;
+  }
+
+  function ordenarPor(col, titulo) {
+    const mismo = estado.orden.col === col;
+    estado.orden = { col: col, dir: mismo && estado.orden.dir === "asc" ? "desc" : "asc" };
+    sincronizarOrdenMovil();
+    renderTabla();
+    anunciar("Ordenado por " + titulo + (estado.orden.dir === "asc" ? ", de menor a mayor." : ", de mayor a menor."));
+    // el foco vuelve al encabezado que se pulsó (la tabla se vuelve a pintar)
+    const nuevo = document.querySelector('#casos-cuerpo th[aria-sort] .th-orden');
+    if (nuevo) nuevo.focus();
+  }
+  function sincronizarOrdenMovil() {
+    const v = estado.orden.col + ":" + estado.orden.dir, sel = $("orden-movil");
+    sel.value = [...sel.options].some((o) => o.value === v) ? v : sel.value;
+  }
+  $("buscar-caso").addEventListener("input", (e) => { estado.filtro.texto = e.target.value; if (estado.resumenEstado === "ok") renderTabla(); });
+  $("filtro-estado").addEventListener("change", (e) => { estado.filtro.estado = e.target.value; if (estado.resumenEstado === "ok") renderTabla(); });
+  $("orden-movil").addEventListener("change", (e) => { const [col, dir] = e.target.value.split(":"); estado.orden = { col: col, dir: dir }; renderTabla(); });
+
+  // ---------- hoja del caso: pestañas Campos, Soportes y Decisiones ----------
+  const PESTANAS = ["campos", "soportes", "decisiones"];
+  function activarPestana(nombre, foco) {
+    estado.hoja.pestana = nombre;
+    for (const p of PESTANAS) {
+      const activa = p === nombre;
+      $("pest-" + p).setAttribute("aria-selected", String(activa));
+      $("pest-" + p).tabIndex = activa ? 0 : -1;
+      $("panel-" + p).hidden = !activa;
+    }
+    if (foco) $("pest-" + nombre).focus();
+  }
+  PESTANAS.forEach((p, i) => {
+    $("pest-" + p).addEventListener("click", () => activarPestana(p, false));
+    $("pest-" + p).addEventListener("keydown", (e) => {
+      const paso = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "Home" ? "ini" : e.key === "End" ? "fin" : 0;
+      if (!paso) return;
+      e.preventDefault();
+      const j = paso === "ini" ? 0 : paso === "fin" ? PESTANAS.length - 1 : (i + paso + PESTANAS.length) % PESTANAS.length;
+      activarPestana(PESTANAS[j], true);
+    });
+  });
+
+  async function abrirHoja(caso, origen) {
+    estado.hoja = { abierta: true, caso: caso, pestana: "campos", datos: null };
+    $("h-hoja").textContent = "Cargando…";
+    $("hoja-meta").textContent = ""; $("hoja-estado").hidden = true;
+    $("abrir-en-asistente").disabled = true;
+    activarPestana("campos", false);
+    for (const p of PESTANAS) esqueleto($("panel-" + p), 5, "");
+    mostrarPanel($("hoja-caso"));
+    sincronizarOverlay(origen);
+    $("cerrar-hoja").focus();
+    await cargarHoja();
+  }
+
+  async function cargarHoja() {
+    const caso = estado.hoja.caso;
+    const r = await api("/api/casos/" + encodeURIComponent(caso) + "?" + q());
+    if (!estado.hoja.abierta || estado.hoja.caso !== caso) return;
+    if (!r.ok) {
+      $("h-hoja").textContent = "No pude cargar el caso";
+      for (const p of PESTANAS) {
+        const c = $("panel-" + p); c.textContent = ""; c.removeAttribute("aria-busy");
+        const e = el("div", "estado-vacio-vista estado-error"); e.setAttribute("role", "alert");
+        e.appendChild(icono("triangle-alert")); e.appendChild(el("p", "", r.data.error || "No pude cargar el caso."));
+        e.appendChild(boton("Reintentar", "refresh-cw", "", () => { for (const q2 of PESTANAS) esqueleto($("panel-" + q2), 5, ""); cargarHoja(); }));
+        c.appendChild(e);
+      }
+      iconos();
+      return;
+    }
+    estado.hoja.datos = r.data;
+    renderHoja(r.data);
+  }
+
+  function renderHoja(v) {
+    const info = ESTADOS[v.estado];
+    $("h-hoja").textContent = v.cliente;
+    $("hoja-meta").textContent = [PAISES[v.pais] || v.pais, FORMATOS[v.formato] || v.formato, "Solicitud del " + fechaCorta(v.fechaSolicitud)].join(" · ");
+    const e = $("hoja-estado");
+    e.className = "estado estado-" + info.clase;
+    e.textContent = v.estadoTexto + (v.enviado && v.enviadoIncompleto ? " (marcado como incompleto)" : "");
+    e.hidden = false;
+    $("abrir-en-asistente").disabled = false;
+
+    // Campos
+    const pc = $("panel-campos"); pc.textContent = ""; pc.removeAttribute("aria-busy");
+    if (!v.procesado) pc.appendChild(vacioHoja("file-text", "Este caso todavía no se procesó. Ábrelo en el asistente para llenarlo."));
+    else {
+      const t = tablaSimple(["Campo", "Valor", "Origen", "Estado"], "Campos del caso, con su valor, de dónde sale y su estado");
+      for (const c of v.campos) {
+        const tr = el("tr");
+        tr.appendChild(el("td", "", c.etiqueta));
+        tr.appendChild(el("td", "val" + (/\b(NIT|RUC|RTN)\b/i.test(c.etiqueta) && c.valor !== null ? " mono" : ""), c.valor !== null ? c.valor : "Sin dato"));
+        tr.appendChild(el("td", "val", c.estado === "faltante" ? "No existe en el maestro" : c.origen));
+        const ce = el("td"), info2 = ESTADO_CAMPO[c.estado], sp = el("span", "est " + info2.clase);
+        sp.append(icono(info2.icono), document.createTextNode(info2.texto)); ce.appendChild(sp); tr.appendChild(ce);
+        t.tBodies[0].appendChild(tr);
+      }
+      pc.appendChild(envolver(t));
+    }
+
+    // Soportes
+    const ps = $("panel-soportes"); ps.textContent = ""; ps.removeAttribute("aria-busy");
+    const ts = tablaSimple(["Soporte", "Vigencia", "Vence", "Nota"], "Soportes exigidos y su vigencia a la fecha de referencia");
+    for (const so of v.soportes) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "", so.nombre[0].toUpperCase() + so.nombre.slice(1)));
+      const cv = el("td"), sp = el("span", "est soporte-" + so.alerta);
+      sp.append(icono(SEMAFORO[so.alerta]), document.createTextNode(so.estadoTexto)); cv.appendChild(sp); tr.appendChild(cv);
+      let vence = "—";
+      if (so.estado === "vigente" && so.vigenciaHasta) vence = fechaCorta(so.vigenciaHasta) + " (quedan " + so.diasRestantes + " días)";
+      else if (so.estado === "vencido") vence = "Venció el " + fechaCorta(so.vigenciaHasta);
+      else if (so.estado === "vigente") vence = "Sin vencimiento";
+      tr.appendChild(el("td", "", vence));
+      tr.appendChild(el("td", "val", so.advertencia ? so.advertencia.charAt(0).toUpperCase() + so.advertencia.slice(1) : "—"));
+      ts.tBodies[0].appendChild(tr);
+    }
+    ps.appendChild(envolver(ts));
+
+    // Decisiones
+    const pd = $("panel-decisiones"); pd.textContent = ""; pd.removeAttribute("aria-busy");
+    if (v.decisiones.length === 0) pd.appendChild(vacioHoja("circle-check", "Todavía no has confirmado ni mandado a revisar ningún valor en este caso."));
+    else {
+      const ul = el("ul", "dec-lista");
+      for (const d of v.decisiones) {
+        const li = el("li", "dec-fila");
+        li.appendChild(el("strong", "", d.etiqueta));
+        if (d.valor !== null) li.appendChild(el("span", "mono", d.valor));
+        li.appendChild(el("span", "", d.decision === "confirmado" ? "Lo confirmaste." : "Lo mandaste a revisar con el cliente."));
+        li.appendChild(el("span", "meta", d.fechaColombia));
+        ul.appendChild(li);
+      }
+      pd.appendChild(ul);
+    }
+    iconos();
+  }
+  function vacioHoja(nombreIcono, texto) { const e = el("div", "estado-vacio-vista"); e.appendChild(icono(nombreIcono)); e.appendChild(el("p", "", texto)); return e; }
+  function tablaSimple(titulos, descripcion) {
+    const t = el("table", "tabla-simple");
+    t.appendChild(el("caption", "solo-lector", descripcion));
+    const th = el("thead"), tr = el("tr");
+    for (const x of titulos) { const c = el("th", "", x); c.scope = "col"; tr.appendChild(c); }
+    th.appendChild(tr); t.appendChild(th); t.appendChild(el("tbody"));
+    return t;
+  }
+  function envolver(t) { const w = el("div", "tabla-scroll"); w.tabIndex = 0; w.setAttribute("role", "region"); w.setAttribute("aria-label", t.querySelector("caption").textContent + " (con desplazamiento)"); w.appendChild(t); return w; }
+
+  function cerrarHoja(devolverFoco) {
+    const caso = estado.hoja.caso;
+    estado.hoja = { abierta: false, caso: null, pestana: "campos", datos: null };
+    ocultarPanel($("hoja-caso"));
+    sincronizarOverlay();
+    // La tabla se repinta mientras la hoja está abierta: si el botón de origen ya no existe, el foco vuelve a la fila de ese caso.
+    if (devolverFoco !== false && caso && (!document.activeElement || document.activeElement === document.body)) {
+      const b = document.querySelector('#casos-cuerpo [data-caso="' + caso + '"] .fila-cliente, #casos-cuerpo [data-caso="' + caso + '"].fila-movil');
+      if (b) b.focus();
+    }
+  }
+  $("cerrar-hoja").addEventListener("click", () => cerrarHoja());
+  $("abrir-en-asistente").addEventListener("click", async () => {
+    const caso = estado.hoja.caso;
+    if (!caso) return;
+    cerrarHoja();
+    navegar("#/");
+    await seleccionar(caso, false, false);   // el caso queda en foco en el chat; no se envía nada al modelo
+    $("entrada").focus();
+  });
+
   // ---------- fecha de referencia ----------
   async function refrescarListas() { await Promise.all([cargarBandeja(), cargarSesiones()]); }
   async function refrescar() {
     await refrescarListas();
+    if (estado.ruta === "casos") await cargarResumen(true);
     if (estado.vista === "reporte") await verReporte();
     else if (estado.seleccion) await cargarCaso(false);
   }
@@ -849,6 +1212,7 @@
   });
 
   async function salir() {
+    if (estado.hoja.abierta) cerrarHoja(false);
     if (estado.detalleAbierto) cerrarDetalle();
     if (estado.bandejaAbierta) cerrarBandeja();
     if (estado.auth.cliente) await estado.auth.cliente.auth.signOut();
@@ -922,6 +1286,7 @@
 
   /** Abre la conversación en el chat central: en lectura si terminó, retomándola si sigue en curso. */
   async function abrirConversacion(se) {
+    if (estado.ruta === "casos") navegar("#/");
     const r = await api("/api/sessions/" + encodeURIComponent(se.id));
     if (!r.ok) { estado.sesiones = null; renderConversaciones(); cargarSesiones(); return; }
     if (estado.bandejaAbierta) cerrarBandeja();
@@ -953,7 +1318,8 @@
     await Promise.all([cargarBandeja(), cargarSesiones()]);
     await iniciarChat();
     iconos();
-    $("entrada").focus();
+    aplicarRuta(true);
+    if (estado.ruta === "asistente") $("entrada").focus();
   }
 
   async function arrancar() {

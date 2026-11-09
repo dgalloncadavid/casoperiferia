@@ -5,9 +5,10 @@ import { manejarChat, cargarSesion, esDeUsuario, proponerEnvioDesdePanel, type D
 import type { EstadoSesion, ResumenSesion } from "./agent/tipos"
 import { config } from "./config"
 import { CASO_RE, listarCasos } from "./core/fixtures"
-import { fechaValida, resolverFecha } from "./core/util"
+import { fechaColombia, fechaValida, resolverFecha } from "./core/util"
+export { fechaColombia }
 import { processCaso } from "./process"
-import { bandeja, guardarDecision, reporte, vistaCaso } from "./core/vista"
+import { bandeja, guardarDecision, reporte, resumenCasos, vistaCaso } from "./core/vista"
 import { crearCadena, proveedoresConfigurados } from "./llm/cadena"
 import { ambitoDeUsuario, getStorage } from "./storage"
 
@@ -143,15 +144,6 @@ app.post("/api/chat", async (c) => {
 })
 
 const TEXTO_ESTADO_SESION: Record<EstadoSesion, string> = { en_curso: "En curso", listo: "Listo", bloqueado: "Bloqueado", incompleto: "Incompleto" }
-const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-/** «9 nov 2026, 3:42 p. m.» en hora de Colombia. Colombia es UTC-5 todo el año (sin horario de verano), así que no depende de la ICU del entorno. */
-export const fechaColombia = (iso: string): string => {
-  const d = new Date(new Date(iso).getTime() - 5 * 3_600_000)
-  const h = d.getUTCHours()
-  const hora12 = h % 12 === 0 ? 12 : h % 12
-  return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hora12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${h < 12 ? "a. m." : "p. m."}`
-}
-
 // Historial: SOLO las conversaciones del usuario autenticado, las más recientes primero.
 app.get("/api/sessions", async (c) => {
   const filas = await dependencias().storage.listSessions(usuarioDe(c))
@@ -215,6 +207,13 @@ app.get("/api/casos", async (c) => {
   const fecha = fechaPedida(c.req.query("fecha"))
   if (!fecha) return c.json(FECHA_INVALIDA, 400)
   return c.json({ fechaReferencia: fecha, casos: await bandeja(ctxPanel(c), fecha) })
+})
+
+// Resumen de todos los casos para la vista en tabla. Va ANTES de /api/casos/:caso: si no, «resumen» se tomaría por un caso.
+app.get("/api/casos/resumen", async (c) => {
+  const fecha = fechaPedida(c.req.query("fecha"))
+  if (!fecha) return c.json(FECHA_INVALIDA, 400)
+  return c.json({ fechaReferencia: fecha, casos: await resumenCasos(ctxPanel(c), fecha) })
 })
 
 app.get("/api/casos/:caso", async (c) => {

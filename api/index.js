@@ -132101,6 +132101,13 @@ function agrupar(n) {
 function linea(texto) {
   return texto.replace(/[\r\n]+/g, " ").trim();
 }
+var MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+var fechaColombia = (iso) => {
+  const d = new Date(new Date(iso).getTime() - 5 * 36e5);
+  const h = d.getUTCHours();
+  const hora12 = h % 12 === 0 ? 12 : h % 12;
+  return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hora12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${h < 12 ? "a. m." : "p. m."}`;
+};
 
 // src/core/mapeo.ts
 var IDENTIFICADOR_POR_PAIS = { CO: "NIT", EC: "RUC", PE: "RUC", PA: "RUC", HN: "RTN" };
@@ -132889,11 +132896,45 @@ async function vistaCaso(caso, ctx, fecha) {
     })),
     campos: procesado ? vistaCampos : [],
     pendientes: procesado ? pendientes : [],
+    decisiones: Object.entries(decisiones).map(([etiqueta, d]) => {
+      const campo = campos.find((c) => c.etiqueta === etiqueta);
+      const valor = campo?.valor === void 0 ? null : esSensible(campo.clave) ? enmascararCuenta(campo.valor) : campo.valor;
+      return { etiqueta, valor, decision: d.decision, ts: d.ts, fechaColombia: fechaColombia(d.ts) };
+    }).sort((a, b) => b.ts.localeCompare(a.ts)),
+    ultimaActividad: [logs.at(-1)?.ts, ...Object.values(decisiones).map((d) => d.ts)].filter((t) => typeof t === "string").sort().at(-1) ?? null,
     faltantes: campos.filter((c) => c.estado === "faltante").map((c) => c.etiqueta),
     archivos,
     consumo: await leerConsumo(caso, ctx),
     puedeProponerEnvio: procesado && !enviado && solicitud.formato !== "portal"
   });
+}
+async function resumenCasos(ctx, fecha) {
+  const filas = [];
+  for (const caso of await listarCasos(ctx)) {
+    const v = await vistaCaso(caso, ctx, fecha);
+    if (!v.ok) {
+      filas.push({ caso, cliente: caso, pais: "", formato: "", estado: "decision", estadoTexto: "Necesita tu decisi\xF3n", procesado: false, camposLlenos: null, camposTotal: 0, porConfirmar: null, soportesProblema: { total: 0, nombres: [] }, ultimaActividad: null, fechaColombia: null });
+      continue;
+    }
+    const d = v.data;
+    const problemas = d.soportes.filter((s) => s.estado !== "vigente");
+    filas.push({
+      caso,
+      cliente: d.cliente,
+      pais: d.pais,
+      formato: d.formato,
+      estado: d.estado,
+      estadoTexto: d.estadoTexto,
+      procesado: d.procesado,
+      camposLlenos: d.procesado ? d.campos.filter((c) => c.estado === "lleno").length : null,
+      camposTotal: d.totalCampos,
+      porConfirmar: d.procesado ? d.pendientes.length : null,
+      soportesProblema: { total: problemas.length, nombres: problemas.map((s) => s.nombre) },
+      ultimaActividad: d.ultimaActividad,
+      fechaColombia: d.ultimaActividad ? fechaColombia(d.ultimaActividad) : null
+    });
+  }
+  return filas;
 }
 async function bandeja(ctx, fecha) {
   const filas = [];
@@ -133963,13 +134004,6 @@ app.post("/api/chat", async (c) => {
   }
 });
 var TEXTO_ESTADO_SESION = { en_curso: "En curso", listo: "Listo", bloqueado: "Bloqueado", incompleto: "Incompleto" };
-var MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-var fechaColombia = (iso) => {
-  const d = new Date(new Date(iso).getTime() - 5 * 36e5);
-  const h = d.getUTCHours();
-  const hora12 = h % 12 === 0 ? 12 : h % 12;
-  return `${d.getUTCDate()} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${hora12}:${String(d.getUTCMinutes()).padStart(2, "0")} ${h < 12 ? "a. m." : "p. m."}`;
-};
 app.get("/api/sessions", async (c) => {
   const filas = await dependencias().storage.listSessions(usuarioDe(c));
   return c.json({
@@ -134026,6 +134060,11 @@ app.get("/api/casos", async (c) => {
   const fecha = fechaPedida(c.req.query("fecha"));
   if (!fecha) return c.json(FECHA_INVALIDA, 400);
   return c.json({ fechaReferencia: fecha, casos: await bandeja(ctxPanel(c), fecha) });
+});
+app.get("/api/casos/resumen", async (c) => {
+  const fecha = fechaPedida(c.req.query("fecha"));
+  if (!fecha) return c.json(FECHA_INVALIDA, 400);
+  return c.json({ fechaReferencia: fecha, casos: await resumenCasos(ctxPanel(c), fecha) });
 });
 app.get("/api/casos/:caso", async (c) => {
   const caso = c.req.param("caso");
