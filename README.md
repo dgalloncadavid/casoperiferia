@@ -21,6 +21,10 @@ bun run dev              # http://localhost:3000  (front + API)
 
 Chat al centro; a la izquierda la bandeja (casos, conversaciones, fecha de referencia y reporte); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
 
+## Sistema visual
+
+Estética de SaaS silencioso y editorial (referencia Dub, Linear y Vercel): lienzo blanco, contenedores con borde de 1px en vez de sombras, tipografía densa y un solo azul de acento. **Todo el color sale de los tokens de `:root` en [web/styles.css](web/styles.css)** (no hay colores sueltos) y hay un tema oscuro derivado. Tipografía: **Inter** (400, 500 y 600) para la interfaz y **JetBrains Mono** solo para identificadores (NIT, RUC, RTN, nombres de caso y montos), autoalojadas en `web/fonts/` (licencia en `web/fonts/LICENCIAS.md`). Radios: 6, 8, 12 y 16 px. Íconos solo de Lucide (trazo 1.75). `test/contraste.test.ts` verifica el contraste AA en claro y oscuro y convierte estas reglas en pruebas: sin colores sueltos, solo esos radios, sin sombras salvo el botón primario y el anillo de drawers y login, sin degradados salvo el fondo de puntos del ingreso, y solo las tallas y pesos de la escala.
+
 ## Acceso y datos por usuario
 
 El acceso es con **usuarios fijos** creados en Supabase Auth (no hay registro público ni recuperación de contraseña). Las contraseñas no están en el repositorio.

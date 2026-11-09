@@ -430,7 +430,7 @@
       cab.setAttribute("aria-expanded", "false");
       cab.setAttribute("aria-controls", "traza-" + i);
       cab.appendChild(el("span", "etq", c.etiqueta));
-      cab.appendChild(el("span", "val", c.valor !== null ? c.valor : "Sin dato"));
+      cab.appendChild(el("span", "val" + (/\b(NIT|RUC|RTN)\b/i.test(c.etiqueta) && c.valor !== null ? " mono" : ""), c.valor !== null ? c.valor : "Sin dato"));
       const est = el("span", "est " + info.clase);
       est.append(icono(info.icono), document.createTextNode(info.texto), icono("chevron-down"));
       est.lastChild.classList.add("chev");
@@ -598,13 +598,13 @@
     const tb2 = el("tbody");
     for (const c of d.casos) {
       const tr = el("tr");
-      const celda = (txt) => tr.appendChild(el("td", "", txt));
+      const celda = (txt, clase) => tr.appendChild(el("td", clase || "", txt));
       const tc = el("td"); const bt = el("button", "enlace"); bt.type = "button"; bt.textContent = c.cliente; bt.addEventListener("click", () => seleccionar(c.caso, true)); tc.appendChild(bt); tr.appendChild(tc);
       celda(c.estadoTexto);
       celda(c.faltantes.join(", ") || "—");
       celda(c.porConfirmar.join(", ") || "—");
       celda(c.soportesAActualizar.join(", ") || "—");
-      celda(c.consumo ? usd(c.consumo.costoUsd) + " · " + miles(c.consumo.tokensEntrada + c.consumo.tokensSalida) + " tokens" : "Sin modelo");
+      celda(c.consumo ? usd(c.consumo.costoUsd) + " · " + miles(c.consumo.tokensEntrada + c.consumo.tokensSalida) + " tokens" : "Sin modelo", c.consumo ? "mono" : "");
       tb2.appendChild(tr);
     }
     t2.appendChild(tb2);
@@ -653,11 +653,23 @@
     else await cargarCaso(false);
   }
 
+  /** Texto con los nombres de caso (p. ej. ec-corp-andina) en monoespaciada. */
+  function agregarTexto(caja, texto) {
+    const re = /\b[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)+\b/g;
+    let ultimo = 0, m;
+    while ((m = re.exec(texto)) !== null) {
+      if (m.index > ultimo) caja.appendChild(document.createTextNode(texto.slice(ultimo, m.index)));
+      caja.appendChild(el("code", "mono", m[0]));
+      ultimo = m.index + m[0].length;
+    }
+    if (ultimo < texto.length) caja.appendChild(document.createTextNode(texto.slice(ultimo)));
+  }
+
   /** Los campos del caso en foco que se nombran en un mensaje del asistente se vuelven botones que abren su trazabilidad. */
   function textoConCampos(caja, texto) {
     const v = estado.detalle;
     const etiquetas = v && v.campos ? [...new Set(v.campos.map((c) => c.etiqueta).filter((e) => e.length >= 3))].sort((a, b) => b.length - a.length) : [];
-    if (!etiquetas.length) { caja.appendChild(document.createTextNode(texto)); return; }
+    if (!etiquetas.length) { agregarTexto(caja, texto); return; }
     const escapar = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp("(?<![\\p{L}\\p{N}])(" + etiquetas.map(escapar).join("|") + ")(?![\\p{L}\\p{N}])", "u");
     const usadas = new Set();
@@ -665,11 +677,11 @@
     while (resto) {
       const m = re.exec(resto);
       if (!m || usadas.has(m[1])) { // una sola mención enlazada por campo y mensaje
-        if (m && usadas.has(m[1])) { caja.appendChild(document.createTextNode(resto.slice(0, m.index + m[1].length))); resto = resto.slice(m.index + m[1].length); continue; }
-        caja.appendChild(document.createTextNode(resto)); break;
+        if (m && usadas.has(m[1])) { agregarTexto(caja, resto.slice(0, m.index + m[1].length)); resto = resto.slice(m.index + m[1].length); continue; }
+        agregarTexto(caja, resto); break;
       }
       usadas.add(m[1]);
-      caja.appendChild(document.createTextNode(resto.slice(0, m.index)));
+      agregarTexto(caja, resto.slice(0, m.index));
       const b = el("button", "enlace-campo", m[1]);
       b.type = "button";
       b.title = "Ver de dónde sale este campo";
