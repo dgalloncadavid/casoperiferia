@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch src/dev.ts",
     "test": "bun test",
-    "check:llm": "bun scripts/e2e-llm.ts"
+    "check:llm": "bun scripts/e2e-llm.ts",
+    "build:modulo": "bun scripts/build-modulo.ts",
+    "check:modulo": "bun scripts/build-modulo.ts --check"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

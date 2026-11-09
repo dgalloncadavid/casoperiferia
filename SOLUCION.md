@@ -1,6 +1,6 @@
 # SOLUCION.md — Reto 1 «Registro como proveedor»
 
-> Estado: **Pasos 1 a 3 entregados.** Pendientes: `modulo/` (Paso 4, bonus), la experiencia ampliada de Sofía (Paso 5) y el enlace público (lo despliega Diego desde la conexión de Vercel; ver §8).
+> Estado: **Pasos 1 a 4 entregados** (incluido el bonus `modulo/`). Pendientes: la experiencia ampliada de Sofía (Paso 5) y el enlace público (lo despliega Diego desde la conexión de Vercel; ver §8).
 
 ## 1. Problema en una frase
 
@@ -58,6 +58,8 @@ Un cambio de reglas de negocio (por ejemplo, el umbral de alerta de vigencia) to
 - `supabase`: tablas `sessions` y `logs` (más `usage` y `rate_limits` de la migración 002) y el bucket privado `paquetes`. Producción en Vercel no depende del disco.
 
 Las herramientas escriben todo a través de `Storage`; ni siquiera releer el xlsx para verificarlo toca el disco directamente.
+
+**Módulo reutilizable (bonus, PRD §9.4).** La carpeta [modulo/](modulo) empaqueta el agente para otras plataformas **sin depender del servidor**: `agent.md` (frontmatter `mode: primary`, `edit: deny`, `bash: deny`; el cuerpo es el system prompt), `tools/proveedor.ts` (las 5 herramientas en un solo archivo, que solo importa `zod`, `exceljs`, `pdf-lib` y `node:*`) y `skill/registro-proveedor/SKILL.md` (el conocimiento). Hay **una sola fuente de verdad**: la aplicación lee `agent/prompt.md`, `src/knowledge/registro-proveedor.md` y `src/tools/proveedor.ts`, y `bun run build:modulo` genera `modulo/` desde esos mismos archivos; nada en `modulo/` se edita a mano. [test/modulo.test.ts](test/modulo.test.ts) **falla si el módulo se desalinea** (si cambia una fuente sin regenerar, o si alguien retoca `modulo/` a mano) y comprueba que el módulo **funciona sin el servidor**: en una carpeta aislada, con solo `modulo/` y `fixtures/` (sin `src/` ni `agent/`), da los mismos resultados que las herramientas de la aplicación en los 4 casos.
 
 ## 3. Ciclo del agente
 
@@ -182,6 +184,7 @@ Cada caso consume **un turno con modelo** (leer, mapear, generar y armar: 4 llam
 18. **En el portal no hay envío que simular**: `proveedor_simular_envio` devuelve error (`formato_no_soportado`); el alta y el clic en «Enviar» los hace una persona.
 19. El argumento **`campos` de `proveedor_mapear_campos` se ignora**: los campos siempre se toman de la plantilla del caso (igual que `mapeo`), para que el modelo no pueda introducir etiquetas inventadas.
 20. **`thought_signature` es obligatoria en Gemini 3.** Verificado contra el endpoint compatible con OpenAI: devolver el historial de una llamada a herramienta sin esa firma produce un 400 («Function call is missing a thought_signature»); con ella, 200. El adaptador conserva el `extra_content` de cada llamada y lo reenvía **solo a Gemini**; si el historial viene de otro proveedor (failover a mitad de turno) usa el valor neutro documentado por Google, `skip_thought_signature_validator`. Esta última parte está cubierta por prueba unitaria, **no** por una corrida real de failover hacia Gemini.
+21. **El módulo `modulo/` no incluye el servidor ni Supabase.** Guarda en disco local (`out/` de la raíz anfitriona, que debe contener `fixtures/reto-01/`). Sin servidor, nadie impone la confirmación del envío: en el módulo la protección es la regla 3 del prompt más el argumento `confirmado` de `proveedor_simular_envio`, que la plataforma anfitriona debe poner en `true` solo tras una confirmación humana explícita. Por eso el prompt es **una sola pieza válida en ambos contextos** (describe los dos casos), en vez de un prompt distinto para el módulo.
 
 ## 8. Cobertura
 
@@ -237,7 +240,7 @@ Estados: **hecho** (con prueba), **parcial** (con qué falta) o **no hecho**. «
 | `SOLUCION.md` con las 10 secciones | Hecho | este documento |
 | `README.md` | Hecho | cómo levantar, variables, API, despliegue |
 | **Enlace público** | **No hecho aún** | Lo despliega Diego desde la conexión de Vercel. `vercel build` no se pudo ejecutar localmente (exige un proyecto real enlazado). Comprobado: la función empaqueta para Node y responde `health`, `chat` y la descarga. `vercel.json` y `api/index.ts` no se han probado en el despliegue real. |
-| **Bonus `modulo/`** (§9.4) | **No hecho** | Paso 4 |
+| **Bonus `modulo/`** (§9.4) | Hecho | Generado por `bun run build:modulo` desde las mismas fuentes que usa la app (una sola fuente de verdad). `test/modulo.test.ts`: alineación exacta (falla si se desalinea o se retoca a mano), frontmatter del PRD, imports permitidos y funcionamiento sin servidor en una carpeta aislada. Limitación: solo almacenamiento local, y la confirmación del envío depende del prompt y de la plataforma anfitriona (supuesto 21). **No probado dentro de una plataforma de agentes real**, solo importado desde un anfitrión mínimo. |
 | Experiencia ampliada de Sofía (bandeja, trazabilidad por campo, reporte de faltantes entre casos, selector de fecha, enmascarado de datos bancarios en el chat, accesibilidad completa) | **Parcial** | Hoy: chat con herramientas visibles, confirmación, fecha de referencia visible, modo oscuro, `prefers-reduced-motion`, íconos Lucide. Falta el resto (Paso 5). Los datos bancarios ya no se escriben en los logs, pero **el chat no los enmascara**. |
 
 **Qué falta para producción:** autenticación y roles (hoy el enlace es público y solo lo protegen los topes); un dueño del dato del maestro; la integración real con correo y firma electrónica (fuera de alcance); revisión de privacidad de lo guardado en Supabase; pruebas con plantillas reales y peores que los fixtures; monitoreo y alertas del gasto.
@@ -246,10 +249,9 @@ Estados: **hecho** (con prueba), **parcial** (con qué falta) o **no hecho**. «
 
 **Asistentes usados para construir**
 
-- **Claude Code** (Claude Sonnet 5.5, en la extensión de VS Code): escribió el código, las pruebas, los scripts y este documento, siguiendo un plan de trabajo y bajo revisión de Diego paso a paso (un commit por paso, aprobación antes de avanzar). También ejecutó las pruebas reales contra Supabase, OpenAI, Google y DeepSeek, y manejó Chrome para verificar el front.
-- **Otro asistente de IA** ayudó a redactar el plan de trabajo y el borrador `docs/01-problema-y-solucion.md` antes de empezar a programar. *(Pendiente de completar por Diego: cuál asistente.)*
+Problema, alcance, trampas, supuestos y plan definidos con criterio de Diego Gallón, apoyado en asistentes de IA para análisis y revisión. Claude Code escribió el código bajo esa dirección; cada decisión de negocio fue aprobada por Diego.
 
-**Qué descartó Diego de lo propuesto, o se corrigió, y por qué**
+**Qué se descartó o se corrigió de lo propuesto, y por qué**
 
 - Desplegar en Railway o Render: el plan lo mencionaba y se descartó a favor de Vercel; por eso la persistencia pasó a Supabase.
 - `gemini-2.5-flash` y `deepseek-chat`: se dejaron de usar al comprobar con una llamada real que no están disponibles en estas cuentas.
@@ -273,4 +275,5 @@ Estados: **hecho** (con prueba), **parcial** (con qué falta) o **no hecho**. «
 | Maestro desactualizado | Asignar un dueño del dato y una fecha de última revisión visible en el paquete. |
 | Portales con CAPTCHA o MFA | El humano opera el portal; el agente prepara los valores (§5). |
 | Soportes con vigencia que cambia con la fecha | `FECHA_REFERENCIA` explícita y visible en cada resumen y en el checklist; alertas a 30 y 15 días. |
+| En el módulo la confirmación del envío no la impone un servidor | Depende del prompt y de que la plataforma anfitriona controle `confirmado`. Antes de usar el módulo con acciones reales, que el anfitrión exija el botón o el «envía» como lo hace la aplicación; no confiar solo en el modelo. |
 | Sin autenticación ni auditoría por usuario | Añadir login y registrar quién confirma cada envío antes de conectar correo o firma real. |

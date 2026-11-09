@@ -11,29 +11,29 @@ Procesa el caso "ec-corp-andina". Dime qué campos quedaron llenos, cuáles falt
 - `proveedor_generar_formulario` {"caso":"ec-corp-andina"} → ok: pdf → out/ec-corp-andina/formulario.pdf
 - `proveedor_armar_paquete` {"caso":"ec-corp-andina"} → ok: paquete bloqueado → out/ec-corp-andina/paquete/
 
-## Asistente (modelo, deepseek/deepseek-flash, 7.3 s)
+## Asistente (modelo, deepseek/deepseek-flash, 10.0 s)
 
-**Caso `ec-corp-andina`** — Corporación Andina de Servicios S.A. (Ecuador), formato PDF.
+**Caso ec-corp-andina** — Corporación Andina de Servicios S.A. (Ecuador), formulario PDF. Formulario generado en `out/ec-corp-andina/formulario.pdf`.
 
-**Llenos:** 13 campos (de 15), todos con fuente en el maestro: nombre, domicilio fiscal, ciudad, país, teléfono, correo, web, representante legal, cargo, actividad económica, banco, número de cuenta y SWIFT.
+**Llenos: 13 campos** (de 15 del total), con fuente en el maestro: nombre/razón social, domicilio fiscal, ciudad, país, teléfono, correo, página web, representante legal, cargo, actividad económica, banco, número de cuenta y SWIFT. Los datos bancarios se cargaron porque la plantilla los exige (no los repito aquí; están en el formulario).
 
-**Por confirmar:** 1
-- RUC: se usó el NIT colombiano 900123456 como identificador extranjero (confianza 0.7).
+**Por confirmar: 1**
+- **RUC:** se usó el NIT colombiano (900123456) como RUC — identificador extranjero, confianza 0.7. Requiere tu confirmación.
 
-**Faltantes:** 1
-- Número de contribuyente especial: no existe en el maestro. No bloquea la firma.
+**Faltantes: 1** (no bloquea la firma)
+- **Número de contribuyente especial:** no existe en el glosario ni en el maestro. Campo opcional.
 
-**¿Listo para firma? No.** Estado bloqueado por soporte ausente: `certificado_cumplimiento_tributario`.
+**¿Listo para firma? No** — paquete bloqueado. Bloqueador: falta el **certificado de cumplimiento tributario** (soporte exigido, ausente).
 
-**Soportes a actualizar:**
-- **Certificado de cumplimiento tributario: ausente** — es el bloqueador; hay que conseguirlo y anexarlo.
-- **Cámara de comercio: vigente pero con alerta amarilla** — vence el 2026-09-30 (27 días desde la fecha de referencia 2026-09-03); conviene renovarlo si el trámite se va a demorar.
-- Resto vigente: RUT (sin fecha de vencimiento), certificación bancaria (2026-12-31) y estados financieros (2027-03-31).
-- Advertencia (no bloquea): los cuatro soportes existentes fueron emitidos en Colombia para un cliente de Ecuador.
+**Soportes a actualizar / vigilar** (referencia: 2026-09-03):
+- **Certificado de cumplimiento tributario:** ausente → hay que conseguirlo.
+- **Cámara de comercio:** vigente pero **alerta amarilla**, vence el 2026-09-30 (quedan 27 días).
+- RUT, certificación bancaria y estados financieros: vigentes sin alerta de vigencia.
+- Advertencia (no bloquea): los cuatro soportes existentes fueron emitidos en Colombia y el cliente es de Ecuador.
 
-**Dónde quedó:** `out/ec-corp-andina/` (formulario en `formulario.pdf`, paquete en `out/ec-corp-andina/paquete/`).
+**Dónde quedó:** `out/ec-corp-andina/paquete/` (formulario, copias de soportes, `checklist.md` y `borrador-correo.md`).
 
-No envío nada: queda pendiente el soporte ausente y la confirmación del RUC.
+No se envió nada. Cuando quieras avanzar, confírmame si el RUC se deja con el NIT y, una vez tengamos el certificado de cumplimiento tributario, el paquete quedaría listo para firma.
 
 ⚠ El caso ec-corp-andina NO está completo. Si confirmas, el envío simulado quedará marcado como INCOMPLETO.
 Pendientes que bloquean la firma: Soporte ausente: certificado_cumplimiento_tributario.

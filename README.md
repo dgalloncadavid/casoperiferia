@@ -17,6 +17,17 @@ cp .env.example .env     # completa las claves que tengas; sin claves funciona e
 bun run dev              # http://localhost:3000  (front + API)
 ```
 
+## Módulo reutilizable (`modulo/`)
+
+El agente empaquetado para otras plataformas, sin servidor: `agent.md`, `tools/proveedor.ts` y `skill/registro-proveedor/SKILL.md`. **Se genera, no se edita**: la fuente de verdad es `agent/prompt.md`, `src/knowledge/registro-proveedor.md` y `src/tools/proveedor.ts`.
+
+```bash
+bun run build:modulo   # regenera modulo/ después de cambiar una fuente
+bun run check:modulo   # falla si modulo/ está desalineado (lo mismo que verifica test/modulo.test.ts)
+```
+
+Detalles de uso en [modulo/README.md](modulo/README.md).
+
 ## Variables de entorno
 
 Ver [.env.example](.env.example). Las claves viven solo en el entorno del backend, nunca en el repo, el front ni los logs.

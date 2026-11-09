@@ -11,20 +11,23 @@ Procesa el caso "ec-corp-andina". Dime qué campos quedaron llenos, cuáles falt
 - `proveedor_generar_formulario` {"caso":"ec-corp-andina"} → ok: pdf → out/ec-corp-andina/formulario.pdf
 - `proveedor_armar_paquete` {"caso":"ec-corp-andina"} → ok: paquete bloqueado → out/ec-corp-andina/paquete/
 
-## Asistente (modelo, google/gemini-3.1-flash-lite, 28.9 s)
+## Asistente (modelo, google/gemini-3.1-flash-lite, 6.1 s)
 
-He procesado la solicitud para el caso **ec-corp-andina**. Aquí tienes el resumen:
+He procesado la solicitud para el cliente **Corporación Andina de Servicios S.A.** (caso `ec-corp-andina`). Aquí tienes el estado actual:
 
-*   **Llenos:** 13 campos han sido completados correctamente desde el repositorio maestro.
-*   **Por confirmar:** 1 campo (**RUC**). Se ha utilizado el NIT colombiano, por lo que debes validar si es aceptado como identificador extranjero.
-*   **Faltantes:** 1 campo (**Número de contribuyente especial**). Este campo no existe en el maestro, pero al ser opcional, no bloquea el proceso.
-*   **¿Listo para firma?** No. El paquete está bloqueado debido a la ausencia del *certificado de cumplimiento tributario*.
-*   **Soportes a actualizar:**
+### Resumen del formulario
+*   **Campos llenos:** 13.
+*   **Por confirmar:** 1 campo (RUC: se utilizó el NIT colombiano como identificador extranjero).
+*   **Faltantes:** 1 campo (Número de contribuyente especial). Recuerda que los faltantes no bloquean la firma.
+
+### Estado del paquete y soportes
+*   **¿Listo para firma?** No, está bloqueado.
+*   **Soportes a actualizar/gestionar:**
     *   **Certificado de cumplimiento tributario:** Ausente (bloquea la firma).
-    *   **Cámara de Comercio:** Vigente, pero tiene una alerta **amarilla** al vencer en menos de 30 días (2026-09-30). 
-    *   *Nota:* Se incluyen advertencias ya que los soportes emitidos en Colombia (RUT, Cámara de Comercio, certificación bancaria y estados financieros) se están presentando para un cliente en Ecuador.
+    *   **Cámara de comercio:** Alerta amarilla (vigente, vence el 2026-09-30).
+    *   *Nota:* Se han incluido advertencias sobre los documentos emitidos en Colombia (Cámara de Comercio, RUT, certificación bancaria y estados financieros), ya que el cliente es de Ecuador.
 
-El formulario y el paquete han sido generados y se encuentran disponibles en la ruta: `out/ec-corp-andina/paquete/`.
+El paquete se encuentra disponible en la carpeta: `out/ec-corp-andina/paquete/`. Quedo a la espera de tus instrucciones para completar los soportes faltantes o proceder una vez que el paquete esté listo.
 
 ⚠ El caso ec-corp-andina NO está completo. Si confirmas, el envío simulado quedará marcado como INCOMPLETO.
 Pendientes que bloquean la firma: Soporte ausente: certificado_cumplimiento_tributario.

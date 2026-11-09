@@ -23,7 +23,8 @@ function crear(directory: string): Storage {
   }
   if (modo !== "local") throw new Error("STORAGE debe ser local o supabase")
   // En Vercel el disco es de solo lectura salvo /tmp.
-  const raiz = process.env.OUT_DIR ?? (process.env.VERCEL ? "/tmp/out" : "out")
+  // `||` y no `??`: una variable vacía cuenta como no definida (si no, "" resolvería a la raíz del proyecto).
+  const raiz = process.env.OUT_DIR || (process.env.VERCEL ? "/tmp/out" : "out")
   return new LocalStorage(path.resolve(directory, raiz))
 }
 

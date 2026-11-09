@@ -1,0 +1,11 @@
+{
+  "name": "registro-proveedor-modulo",
+  "private": true,
+  "type": "module",
+  "description": "GENERADO por scripts/build-modulo.ts desde las fuentes de la aplicación. No editar a mano: se pierde al regenerar y test/modulo.test.ts falla si se desalinea.",
+  "dependencies": {
+    "zod": "^4.6.7",
+    "exceljs": "^4.4.0",
+    "pdf-lib": "^1.17.1"
+  }
+}

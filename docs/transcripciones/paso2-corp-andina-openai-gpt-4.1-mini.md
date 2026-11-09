@@ -11,16 +11,17 @@ Procesa el caso "ec-corp-andina". Dime qué campos quedaron llenos, cuáles falt
 - `proveedor_generar_formulario` {"caso":"ec-corp-andina"} → ok: pdf → out/ec-corp-andina/formulario.pdf
 - `proveedor_armar_paquete` {"caso":"ec-corp-andina"} → ok: paquete bloqueado → out/ec-corp-andina/paquete/
 
-## Asistente (modelo, openai/gpt-4.1-mini, 6.0 s)
+## Asistente (modelo, openai/gpt-4.1-mini, 5.1 s)
 
 Caso "ec-corp-andina":
 
-- Llenos: 13 campos llenados con datos del maestro, incluyendo nombre empresa, domicilio fiscal, ciudad, país, teléfono, correo, página web, representante legal, cargo, actividad económica, banco, número de cuenta y SWIFT.
-- Por confirmar: 1 campo, RUC, con nota que indica uso del NIT colombiano como identificador extranjero.
-- Faltantes: 1 campo sin dato, Número de contribuyente especial (no bloquea la firma).
-- Soportes a actualizar: Falta el certificado de cumplimiento tributario (ausente, bloquea la firma). La cámara de comercio está vigente pero con alerta amarilla (vence en 27 días, referencia 2026-09-03). Otros soportes están vigentes aunque emitidos en Colombia, no en Ecuador (cliente).
-- ¿Listo para firma? No, por falta del certificado de cumplimiento tributario.
-- Ruta del paquete: out/ec-corp-andina/
+- Llenos: 13 campos llenos del formulario PDF.
+- Por confirmar: 1 campo, el RUC, porque se usó el NIT colombiano como RUC extranjero.
+- Faltantes: 1 campo, el Número de contribuyente especial (no bloquea la firma).
+- ¿Listo para firma? No, porque falta el certificado de cumplimiento tributario (soporte ausente).
+- Soportes a actualizar: falta el certificado de cumplimiento tributario. La cámara de comercio está vigente, pero con alerta amarilla (vence en 27 días, emitida en Colombia para cliente en Ecuador).
+
+El paquete final quedó en la ruta: out/ec-corp-andina/paquete/.
 
 ⚠ El caso ec-corp-andina NO está completo. Si confirmas, el envío simulado quedará marcado como INCOMPLETO.
 Pendientes que bloquean la firma: Soporte ausente: certificado_cumplimiento_tributario.
