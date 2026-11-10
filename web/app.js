@@ -41,10 +41,10 @@
 
   // ---------- estado ----------
   const estado = {
-    fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, vista: "caso", sessionId: null, ocupado: false,
+    fecha: null, fechaDefecto: null, casos: [], seleccion: null, detalle: null, sessionId: null, ocupado: false,
     auth: { habilitada: false, cliente: null, usuario: null }, soloLectura: false, sesiones: null,
     detalleAbierto: false, bandejaAbierta: false, filtroConv: null, vistaSesion: null, overlay: null, sugerido: "",
-    ruta: "asistente", resumen: null, resumenEstado: "cargando", filtro: { texto: "", estado: "" }, orden: { col: "cliente", dir: "asc" },
+    ruta: "asistente", reporte: { estado: "cargando", datos: null }, resumen: null, resumenEstado: "cargando", filtro: { texto: "", estado: "" }, orden: { col: "cliente", dir: "asc" },
     hoja: { abierta: false, caso: null, pestana: "campos", datos: null },
   };
 
@@ -77,7 +77,7 @@
   const mqDetalle = window.matchMedia("(max-width: 1279px)");   // el detalle pasa a drawer sobre el chat
   const mqBandeja = window.matchMedia("(max-width: 899px)");    // la bandeja también pasa a drawer
   const mqQuieto = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const REGIONES = ["encabezado", "panel-bandeja", "chat", "vista-casos", "panel-detalle", "hoja-caso"];
+  const REGIONES = ["encabezado", "panel-bandeja", "chat", "vista-casos", "vista-reporte", "panel-detalle", "hoja-caso"];
   const MS_PANEL = 180;
 
   function mostrarPanel(nodo) { nodo.classList.remove("saliendo"); nodo.hidden = false; }
@@ -91,7 +91,7 @@
   /** Mientras un panel hace de drawer, lo demás queda inerte y el foco no se escapa. */
   function overlayNecesario() {
     if (estado.hoja.abierta) return "hoja-caso";
-    if (estado.ruta === "casos") return estado.bandejaAbierta && mqBandeja.matches ? "panel-bandeja" : null; // el detalle derecho no existe en la vista de tabla
+    if (estado.ruta !== "asistente") return estado.bandejaAbierta && mqBandeja.matches ? "panel-bandeja" : null; // el detalle derecho no existe en las vistas de tabla y reporte
     if (estado.detalleAbierto && mqDetalle.matches) return "panel-detalle";
     if (estado.bandejaAbierta && mqBandeja.matches) return "panel-bandeja";
     return null;
@@ -124,7 +124,7 @@
     estado.detalleAbierto = false;
     $("estructura").classList.remove("con-detalle");
     ocultarPanel($("panel-detalle"));
-    $("abrir-detalle").hidden = !estado.seleccion && estado.vista !== "reporte";
+    $("abrir-detalle").hidden = !estado.seleccion;
     sincronizarOverlay();
   }
   function abrirBandeja() { estado.bandejaAbierta = true; mostrarPanel($("panel-bandeja")); sincronizarOverlay(document.activeElement); const f = $("panel-bandeja").querySelector("button"); if (f) f.focus(); }
@@ -228,7 +228,7 @@
       b.type = "button";
       b.dataset.caso = c.caso;
       b.title = c.cliente;
-      if (c.caso === estado.seleccion && estado.vista === "caso") b.setAttribute("aria-current", "true");
+      if (c.caso === estado.seleccion) b.setAttribute("aria-current", "true");
       const l1 = el("span", "fila-1");
       l1.appendChild(el("span", "cliente trunc", c.cliente));
       const e = el("span", "estado estado-" + info.clase);
@@ -267,11 +267,10 @@
 
   /** Elegir un caso abre su detalle y deja el chat enfocado en él. No manda nada al modelo. */
   async function seleccionar(caso, mover, abrir, restaurar) {
-    if (estado.ruta === "casos") navegar("#/");
+    if (estado.ruta !== "asistente") navegar("#/");
     const abrirPanel = abrir !== false;
     if (estado.bandejaAbierta) cerrarBandeja();
     estado.seleccion = caso;
-    estado.vista = "caso";
     if (estado.filtroConv && estado.filtroConv !== caso) estado.filtroConv = null;
     renderBandeja();
     if (abrirPanel) abrirDetalle(document.activeElement);
@@ -284,7 +283,7 @@
   function enfocarChatEnCaso() {
     const v = estado.detalle;
     const hint = $("caso-foco");
-    if (!v || estado.vista !== "caso") { hint.textContent = ""; return; }
+    if (!v) { hint.textContent = ""; return; }
     hint.textContent = "Caso en foco: " + v.cliente;
     // Sugerencia lista para enviar; solo se escribe si el campo está vacío y la envía la persona.
     const entrada = $("entrada");
@@ -617,66 +616,124 @@
     } catch (e) { mostrarError("No pude descargar el archivo."); }
   }
 
-  // ---------- reporte ----------
-  async function verReporte() {
-    if (estado.ruta === "casos") navegar("#/");
-    estado.vista = "reporte";
-    renderBandeja();
-    abrirDetalle(document.activeElement);
-    $("h-detalle").textContent = "Reporte";
+  // ---------- reporte (vista propia: #/reporte) ----------
+  async function cargarReporte(silencioso) {
+    if (!silencioso || !estado.reporte.datos) { estado.reporte.estado = "cargando"; renderReporte(); }
     const r = await api("/api/reporte?" + q());
-    const p = limpiarPrincipal();
-    if (!r.ok) return mostrarError(r.data.error || "No pude cargar el reporte.");
-    const d = r.data;
-    const cab = el("section", "tarjeta cabecera-caso");
-    const h = el("h2", "", "Reporte entre todos los casos");
-    h.id = "h-reporte"; h.tabIndex = -1;
-    cab.appendChild(h);
-    cab.appendChild(el("p", "meta", "Soportes evaluados al " + fechaCorta(d.fechaReferencia) + "."));
-    p.appendChild(cab);
-
-    const falt = el("section", "tarjeta bloque");
-    falt.appendChild(el("h3", "", "Lo que falta, por campo"));
-    if (d.faltantesPorCampo.length === 0) falt.appendChild(el("p", "ayuda", "No falta ningún dato en los casos actuales."));
-    else {
-      const tabla = el("table");
-      tabla.appendChild(el("caption", "solo-lector", "Campos que faltan en el maestro y casos afectados"));
-      const thead = el("thead"); const trh = el("tr");
-      for (const t of ["Campo que falta", "Casos donde lo piden"]) { const th = el("th", "", t); th.scope = "col"; trh.appendChild(th); }
-      thead.appendChild(trh); tabla.appendChild(thead);
-      const tb = el("tbody");
-      for (const f of d.faltantesPorCampo) { const tr = el("tr"); tr.appendChild(el("td", "", f.campo)); tr.appendChild(el("td", "", f.casos.map((c) => c.cliente).join(", "))); tb.appendChild(tr); }
-      tabla.appendChild(tb);
-      const w = el("div", "tabla-scroll"); w.tabIndex = 0; w.setAttribute("role", "region"); w.setAttribute("aria-label", "Campos que faltan, con desplazamiento"); w.appendChild(tabla); falt.appendChild(w);
-      falt.appendChild(el("p", "ayuda", "Estos datos no existen en el maestro de Periferia. No bloquean la firma, pero hay que conseguirlos."));
+    if (!r.ok) {
+      if (!silencioso || !estado.reporte.datos) { estado.reporte.estado = "error"; renderReporte(); }
+      return;
     }
-    p.appendChild(falt);
+    estado.reporte = { estado: "ok", datos: r.data };
+    renderReporte();
+  }
 
-    const por = el("section", "tarjeta bloque");
-    por.appendChild(el("h3", "", "Por caso: pendientes y costo"));
-    const t2 = el("table");
-    t2.appendChild(el("caption", "solo-lector", "Estado, pendientes y costo por caso"));
-    const th2 = el("thead"); const r2 = el("tr");
-    for (const t of ["Caso", "Estado", "Falta", "Por confirmar", "Soportes a actualizar", "Costo del modelo (estimado)"]) { const th = el("th", "", t); th.scope = "col"; r2.appendChild(th); }
-    th2.appendChild(r2); t2.appendChild(th2);
-    const tb2 = el("tbody");
+  function tablaReporte(titulo, columnas, clase) {
+    const caja = el("div", "tabla-wrap " + (clase || ""));
+    caja.tabIndex = 0; caja.setAttribute("role", "region"); caja.setAttribute("aria-label", titulo + ", con desplazamiento");
+    const t = el("table", "tabla-reporte" + (clase === "chica" ? " chica" : ""));
+    t.appendChild(el("caption", "solo-lector", titulo));
+    const th = el("thead"), tr = el("tr");
+    for (const c of columnas) { const h = el("th", c.der ? "der" : "", c.t); h.scope = "col"; tr.appendChild(h); }
+    th.appendChild(tr); t.appendChild(th);
+    caja.appendChild(t);
+    return { caja, tabla: t };
+  }
+
+  function renderReporte() {
+    const cuerpo = $("reporte-cuerpo");
+    cuerpo.textContent = "";
+    const rep = estado.reporte;
+    if (rep.estado === "cargando") {
+      cuerpo.setAttribute("aria-busy", "true");
+      const caja = el("div", "tabla-wrap"); caja.style.padding = "16px";
+      esqueleto(caja, 6, "sk-fila");
+      cuerpo.appendChild(caja);
+      return;
+    }
+    cuerpo.removeAttribute("aria-busy");
+    if (rep.estado === "error") {
+      const e = el("div", "estado-vacio-vista estado-error");
+      e.setAttribute("role", "alert");
+      e.appendChild(icono("triangle-alert"));
+      e.appendChild(el("p", "", "No pude cargar el reporte."));
+      e.appendChild(boton("Reintentar", "refresh-cw", "", () => cargarReporte()));
+      cuerpo.appendChild(e);
+      iconos();
+      return;
+    }
+    const d = rep.datos;
+    if (!d || d.casos.length === 0) {
+      const e = el("div", "estado-vacio-vista");
+      e.appendChild(icono("clipboard-list"));
+      e.appendChild(el("p", "", "Todavía no hay casos para reportar."));
+      cuerpo.appendChild(e);
+      iconos();
+      return;
+    }
+    cuerpo.appendChild(el("p", "meta reporte-meta", "Soportes evaluados al " + fechaCorta(d.fechaReferencia) + "."));
+
+    // 1. Lo que falta, por campo
+    const s1 = el("section", "reporte-seccion");
+    s1.setAttribute("aria-labelledby", "h-rep-faltan");
+    const h1 = el("h3", "", "Lo que falta, por campo"); h1.id = "h-rep-faltan"; s1.appendChild(h1);
+    if (d.faltantesPorCampo.length === 0) s1.appendChild(el("p", "ayuda", "No falta ningún dato en los casos actuales."));
+    else {
+      const { caja, tabla } = tablaReporte("Campos que faltan en el maestro y casos afectados", [{ t: "Campo que falta" }, { t: "Casos donde lo piden" }, { t: "Casos", der: true }], "chica");
+      const tb = el("tbody");
+      for (const f of d.faltantesPorCampo) {
+        const tr = el("tr");
+        tr.appendChild(el("td", "", f.campo));
+        tr.appendChild(el("td", "", f.casos.map((c) => c.cliente).join(", ")));
+        tr.appendChild(el("td", "num der", String(f.casos.length)));
+        tb.appendChild(tr);
+      }
+      tabla.appendChild(tb);
+      s1.appendChild(caja);
+      s1.appendChild(el("p", "ayuda reporte-nota", "Estos datos no existen en el maestro de Periferia. No bloquean la firma, pero hay que conseguirlos."));
+    }
+    cuerpo.appendChild(s1);
+
+    // 2. Por caso: pendientes y costo
+    const s2 = el("section", "reporte-seccion");
+    s2.setAttribute("aria-labelledby", "h-rep-casos");
+    const h2 = el("h3", "", "Por caso: pendientes y costo"); h2.id = "h-rep-casos"; s2.appendChild(h2);
+    const { caja, tabla } = tablaReporte("Estado, pendientes y costo por caso", [{ t: "Caso" }, { t: "Estado" }, { t: "Falta" }, { t: "Por confirmar" }, { t: "Soportes a actualizar" }, { t: "Costo estimado", der: true }, { t: "Tokens", der: true }], "solo-ancho");
+    const tb = el("tbody");
+    const lista = el("ul", "reporte-lista-movil");
+    const costo = (c) => (c.consumo ? usd(c.consumo.costoUsd) : "Sin modelo");
+    const tokens = (c) => (c.consumo ? miles(c.consumo.tokensEntrada + c.consumo.tokensSalida) : "—");
+    const enlaceCaso = (c) => { const b = el("button", "enlace"); b.type = "button"; b.textContent = c.cliente; b.addEventListener("click", () => seleccionar(c.caso, true, true, true)); return b; };
     for (const c of d.casos) {
       const tr = el("tr");
-      const celda = (txt, clase) => tr.appendChild(el("td", clase || "", txt));
-      const tc = el("td"); const bt = el("button", "enlace"); bt.type = "button"; bt.textContent = c.cliente; bt.addEventListener("click", () => seleccionar(c.caso, true, true, true)); tc.appendChild(bt); tr.appendChild(tc);
-      celda(c.estadoTexto);
-      celda(c.faltantes.join(", ") || "—");
-      celda(c.porConfirmar.join(", ") || "—");
-      celda(c.soportesAActualizar.join(", ") || "—");
-      celda(c.consumo ? usd(c.consumo.costoUsd) + " · " + miles(c.consumo.tokensEntrada + c.consumo.tokensSalida) + " tokens" : "Sin modelo", c.consumo ? "mono" : "");
-      tb2.appendChild(tr);
+      const tc = el("td"); tc.appendChild(enlaceCaso(c)); tr.appendChild(tc);
+      const te = el("td"); te.appendChild(estadoPunto(c)); tr.appendChild(te);
+      tr.appendChild(el("td", "", c.faltantes.join(", ") || "—"));
+      tr.appendChild(el("td", "", c.porConfirmar.join(", ") || "—"));
+      tr.appendChild(el("td", "", c.soportesAActualizar.join(", ") || "—"));
+      tr.appendChild(el("td", "num der", costo(c)));
+      tr.appendChild(el("td", "num der", tokens(c)));
+      tb.appendChild(tr);
+      const li = el("li");
+      li.appendChild(enlaceCaso(c));
+      li.appendChild(estadoPunto(c));
+      li.appendChild(el("span", "", "Falta: " + (c.faltantes.join(", ") || "—")));
+      li.appendChild(el("span", "", "Por confirmar: " + (c.porConfirmar.join(", ") || "—")));
+      li.appendChild(el("span", "", "Soportes a actualizar: " + (c.soportesAActualizar.join(", ") || "—")));
+      li.appendChild(el("span", "num", "Costo estimado: " + costo(c) + " · " + tokens(c) + " tokens"));
+      lista.appendChild(li);
     }
-    t2.appendChild(tb2);
-    const w2 = el("div", "tabla-scroll"); w2.tabIndex = 0; w2.setAttribute("role", "region"); w2.setAttribute("aria-label", "Pendientes y costo por caso, con desplazamiento"); w2.appendChild(t2); por.appendChild(w2);
-    por.appendChild(el("p", "ayuda", "Total del modelo: " + usd(d.totalCostoUsd) + " y " + miles(d.totalTokens) + " tokens. Son estimaciones con la tabla de precios configurada; solo cuentan las conversaciones con el modelo (procesar desde el panel no cuesta)."));
-    p.appendChild(por);
+    tabla.appendChild(tb);
+    const pie = el("tfoot"), trp = el("tr");
+    const tdTotal = el("td", "", "Total del modelo"); tdTotal.colSpan = 5; trp.appendChild(tdTotal);
+    trp.appendChild(el("td", "num der", usd(d.totalCostoUsd)));
+    trp.appendChild(el("td", "num der", miles(d.totalTokens)));
+    pie.appendChild(trp); tabla.appendChild(pie);
+    s2.appendChild(caja);
+    s2.appendChild(lista);
+    s2.appendChild(el("p", "ayuda reporte-nota", "Total del modelo: " + usd(d.totalCostoUsd) + " y " + miles(d.totalTokens) + " tokens. Son estimaciones con la tabla de precios configurada; solo cuentan las conversaciones con el modelo (procesar desde el panel no cuesta)."));
+    cuerpo.appendChild(s2);
     iconos();
-    h.focus();
   }
 
   // ---------- chat ----------
@@ -822,25 +879,30 @@
   }
 
   // ---------- ruta por hash: #/ (asistente) y #/casos (tabla) ----------
-  const rutaDeHash = () => (/^#\/casos(\/|$)/.test(location.hash) ? "casos" : "asistente");
+  const rutaDeHash = () => (/^#\/casos(\/|$)/.test(location.hash) ? "casos" : /^#\/reporte(\/|$)/.test(location.hash) ? "reporte" : "asistente");
 
   function aplicarRuta(inicial) {
     const r = rutaDeHash();
     if (r === estado.ruta && !inicial) return;
     estado.ruta = r;
-    const enCasos = r === "casos";
-    $("estructura").classList.toggle("en-casos", enCasos);
-    $("chat").hidden = enCasos;
+    const enCasos = r === "casos", enReporte = r === "reporte", enVista = r !== "asistente";
+    $("estructura").classList.toggle("en-casos", enVista);   // vista central a ancho completo: sin panel derecho
+    $("chat").hidden = enVista;
     $("vista-casos").hidden = !enCasos;
+    $("vista-reporte").hidden = !enReporte;
     if (enCasos) $("ver-todos").setAttribute("aria-current", "page"); else $("ver-todos").removeAttribute("aria-current");
-    $("saltar").setAttribute("href", enCasos ? "#h-casos-todos" : "#chat");
-    $("saltar").textContent = enCasos ? "Saltar a la tabla" : "Saltar al chat";
+    if (enReporte) $("ver-reporte").setAttribute("aria-current", "page"); else $("ver-reporte").removeAttribute("aria-current");
+    $("saltar").setAttribute("href", enCasos ? "#h-casos-todos" : enReporte ? "#h-reporte-vista" : "#chat");
+    $("saltar").textContent = enCasos ? "Saltar a la tabla" : enReporte ? "Saltar al reporte" : "Saltar al chat";
     if (!enCasos && estado.hoja.abierta) cerrarHoja(false);
     sincronizarOverlay();
+    if (enVista && estado.bandejaAbierta) cerrarBandeja();
     if (enCasos) {
-      if (estado.bandejaAbierta) cerrarBandeja();
       cargarResumen();
       if (!inicial) { const h = $("h-casos-todos"); h.focus(); anunciar("Todos los casos"); }
+    } else if (enReporte) {
+      cargarReporte();
+      if (!inicial) { const h = $("h-reporte-vista"); h.focus(); anunciar("Reporte de faltantes y costo"); }
     } else if (!inicial) anunciar("Asistente");
   }
   /** Cambia de vista (el botón atrás del navegador también funciona porque usa el hash). */
@@ -849,8 +911,8 @@
     aplicarRuta();
   }
   window.addEventListener("hashchange", () => aplicarRuta());
-  // Si ya estás en la tabla, el enlace no cambia el hash: igual cierra el lateral (drawer) para mostrarla.
-  $("ver-todos").addEventListener("click", () => { if (estado.bandejaAbierta) cerrarBandeja(); });
+  // Si ya estás en esa vista, el enlace no cambia el hash: igual cierra el lateral (drawer) para mostrarla.
+  for (const id of ["ver-todos", "ver-reporte"]) $(id).addEventListener("click", () => { if (estado.bandejaAbierta) cerrarBandeja(); });
 
   // ---------- Todos los casos: tabla ----------
   const ORDEN_ESTADO = { nuevo: 0, decision: 1, listo: 2, enviado: 3 };
@@ -1181,11 +1243,11 @@
   });
 
   // ---------- fecha de referencia ----------
-  async function refrescarListas() { await Promise.all([cargarResumen(true), cargarSesiones()]); }
+  async function refrescarListas() { await Promise.all([cargarResumen(true), cargarSesiones(), estado.ruta === "reporte" ? cargarReporte(true) : null]); }
   async function refrescar() {
     await refrescarListas();
-    if (estado.vista === "reporte") await verReporte();
-    else if (estado.seleccion) await cargarCaso(false);
+    if (estado.ruta === "reporte") await cargarReporte(true);
+    if (estado.seleccion) await cargarCaso(false);
   }
   function fijarFecha(f) {
     if (!f) return;
@@ -1199,7 +1261,6 @@
   $("fecha").addEventListener("change", (e) => fijarFecha(e.target.value));
   $("fecha-reto").addEventListener("click", () => fijarFecha(estado.fechaDefecto));
   $("fecha-hoy").addEventListener("click", () => fijarFecha(hoyLocal()));
-  $("ver-reporte").addEventListener("click", verReporte);
   $("form-chat").addEventListener("submit", (e) => { e.preventDefault(); enviar($("entrada").value, false); });
   $("entrada").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar($("entrada").value, false); } });
   async function conversacionNueva(opc) {
@@ -1253,7 +1314,7 @@
     if (estado.detalleAbierto) cerrarDetalle();
     if (estado.bandejaAbierta) cerrarBandeja();
     if (estado.auth.cliente) await estado.auth.cliente.auth.signOut();
-    estado.auth.usuario = null; estado.filtroConv = null; estado.vistaSesion = null; estado.resumen = null; estado.casos = []; estado.sesiones = null; estado.seleccion = null; estado.detalle = null; estado.vista = "caso"; $("caso-foco").textContent = "";
+    estado.auth.usuario = null; estado.filtroConv = null; estado.vistaSesion = null; estado.resumen = null; estado.reporte = { estado: "cargando", datos: null }; estado.casos = []; estado.sesiones = null; estado.seleccion = null; estado.detalle = null; $("caso-foco").textContent = "";
     $("mensajes").textContent = ""; limpiarPrincipal();
     mostrarIngreso("");
     anunciar("Cerraste sesión.");
@@ -1354,7 +1415,7 @@
   /** Enlace fantasma bajo el encabezado del chat: «Ver conversaciones de este caso (N)» y su forma de quitar el filtro. */
   function actualizarFiltroConv() {
     const caja = $("chat-sub"), b = $("filtro-conv");
-    const caso = estado.vista === "caso" ? estado.seleccion : null;
+    const caso = estado.seleccion;
     const n = caso ? sesionesDeCaso(caso).length : 0;
     const activo = Boolean(estado.filtroConv);
     caja.hidden = !(caso && (n > 1 || activo));
@@ -1377,7 +1438,7 @@
   /** Abre la conversación en el chat central: en lectura si terminó, retomándola si sigue en curso. */
   async function abrirConversacion(se, opc) {
     opc = opc || {};
-    if (estado.ruta === "casos") navegar("#/");
+    if (estado.ruta !== "asistente") navegar("#/");
     const r = await api("/api/sessions/" + encodeURIComponent(se.id));
     if (!r.ok) { estado.sesiones = null; renderConversaciones(); cargarSesiones(); return; }
     if (estado.bandejaAbierta) cerrarBandeja();

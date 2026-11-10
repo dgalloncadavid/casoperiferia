@@ -65,7 +65,7 @@
         <h2 id="h-bandeja"><i data-lucide="inbox"></i> Casos</h2>
         <ul class="bandeja-lista" id="lista-casos"></ul>
       </div>
-      <a class="btn btn-fantasma btn-todos" id="ver-todos" href="#/casos"><i data-lucide="table"></i> Ver todos los casos</a>
+      <a class="btn btn-nav" id="ver-todos" href="#/casos"><i data-lucide="table-2"></i><span>Ver todos los casos</span><i data-lucide="chevron-right" class="chev"></i></a>
     </section>
     <section class="bloque-lista" id="sec-conv">
       <div class="lista-scroll" role="region" aria-labelledby="h-conv" tabindex="0">
@@ -74,7 +74,7 @@
       </div>
     </section>
     <section class="bloque pie-bandeja" aria-label="Reporte">
-      <button type="button" class="btn btn-reporte" id="ver-reporte"><i data-lucide="clipboard-list"></i> Reporte de faltantes y costo</button>
+      <a class="btn btn-nav" id="ver-reporte" href="#/reporte"><i data-lucide="clipboard-list"></i><span>Reporte de faltantes y costo</span><i data-lucide="chevron-right" class="chev"></i></a>
     </section>
   </nav>
 
@@ -128,6 +128,14 @@
       </select>
     </div>
     <div id="casos-cuerpo" class="casos-cuerpo"></div>
+  </section>
+
+  <section class="centro tarjeta vista-casos vista-reporte" id="vista-reporte" aria-labelledby="h-reporte-vista" hidden>
+    <div class="casos-cab">
+      <h2 id="h-reporte-vista" tabindex="-1">Reporte de faltantes y costo</h2>
+      <a class="enlace volver" href="#/"><i data-lucide="arrow-left"></i> Volver al asistente</a>
+    </div>
+    <div id="reporte-cuerpo" class="casos-cuerpo"></div>
   </section>
 
   <aside class="panel-der" id="panel-detalle" aria-labelledby="h-detalle" hidden>

@@ -128,8 +128,11 @@ svg.lucide { width: 16px; height: 16px; stroke-width: 1.75; }
 .btn-fantasma { border-color: transparent; background: transparent; }
 .btn-fantasma:hover:not(:disabled) { background: var(--paper); border-color: transparent; }
 a.btn { text-decoration: none; }
-.btn-todos { width: 100%; justify-content: flex-start; margin-top: 4px; }
-.btn-todos[aria-current="page"] { background: var(--hover); }
+.btn.btn-nav { width: 100%; min-height: 40px; height: auto; padding: 8px 12px; justify-content: flex-start; text-align: left; background: var(--canvas); border: 1px solid var(--hairline); box-shadow: var(--shadow-card); color: var(--ink); font-size: 13px; text-decoration: none; }
+.btn.btn-nav:hover { background: var(--paper); border-color: var(--hairline); transform: none; }
+.btn.btn-nav:active { transform: scale(0.99); }
+.btn.btn-nav .chev { margin-left: auto; color: var(--fog-text); }
+.btn.btn-nav[aria-current="page"] { border-color: var(--fog); }
 .enlace { background: none; border: 0; padding: 2px 0; min-height: 24px; text-align: left; color: var(--blue-text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-weight: 500; }
 
 /* ---------- Encabezado: 56px ---------- */
@@ -195,7 +198,9 @@ a.btn { text-decoration: none; }
 .panel-izq .bloque-lista { flex: 1 1 0; min-height: 132px; display: flex; flex-direction: column; padding: 0; }
 .lista-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 8px 4px; }
 .lista-scroll > h2 { position: sticky; top: 0; z-index: 1; background: var(--paper); margin: 0 !important; padding: 12px 8px 6px; }
-.panel-izq .bloque-lista .btn-todos { flex: none; margin: 2px 8px 8px; }
+.panel-izq .bloque-lista .btn-nav { flex: none; width: auto; margin: 0 8px 6px; }
+.panel-izq .bloque-fecha { padding: 12px 16px; }
+.panel-izq .pie-bandeja { padding: 12px 8px; border-top: 1px solid var(--hairline); }
 .bandeja-lista, .lista-hist { display: grid; gap: 2px; }
 .caso-fila, .hist-item { position: relative; width: 100%; text-align: left; display: grid; gap: 2px; min-height: 0; padding: 8px 10px; border: 0; border-radius: var(--r-btn); background: transparent; color: var(--charcoal); cursor: pointer; transition: background var(--t) ease-out; }
 .caso-fila:hover, .hist-item:hover { background: color-mix(in srgb, var(--hover) 60%, transparent); }
@@ -218,7 +223,6 @@ a.btn { text-decoration: none; }
 .fecha input[type="date"] { background: var(--canvas); border: 1px solid var(--fog); border-radius: var(--r-input); padding: 0 10px; height: 36px; font-size: 13px; }
 .acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .bloque-fecha .acciones { margin-top: 0; }
-.btn-reporte { width: 100%; }
 .vacio-amable { display: grid; justify-items: center; gap: 8px; padding: 20px 8px; text-align: center; color: var(--fog-text); font-size: 13px; }
 .vacio-amable svg.lucide { width: 32px; height: 32px; stroke-width: 1.5; color: var(--smoke); }
 
@@ -285,6 +289,7 @@ a.btn { text-decoration: none; }
 /* ---------- Vista «Todos los casos» (tabla) ---------- */
 .estructura.en-casos, .estructura.en-casos.con-detalle { grid-template-columns: 280px minmax(0, 1fr); }
 .estructura.en-casos #panel-detalle { display: none !important; }
+@media (max-width: 899px) { .estructura.en-casos, .estructura.en-casos.con-detalle { grid-template-columns: minmax(0, 1fr); } }
 .vista-casos { display: flex; flex-direction: column; overflow: hidden; background: var(--canvas); }
 .vista-casos.tarjeta { border: 0; border-radius: 0; box-shadow: none; }
 .casos-cab { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; padding: 20px 24px 12px; }
@@ -324,11 +329,31 @@ th[aria-sort] .th-orden { color: var(--ink); }
 .estado-vacio-vista svg.lucide { width: 32px; height: 32px; stroke-width: 1.5; color: var(--smoke); }
 .estado-error svg.lucide { color: var(--txt-bloqueado); }
 .estado-error p { color: var(--charcoal); }
+/* Reporte de faltantes y costo (vista propia) */
+.reporte-meta { margin-bottom: 16px; }
+.reporte-seccion { margin-bottom: 28px; }
+.reporte-seccion > h3 { margin-bottom: 10px; }
+.reporte-nota { margin-top: 10px; }
+.tabla-reporte { min-width: 760px; }
+.tabla-reporte.chica { min-width: 0; }
+.tabla-reporte th { background: var(--muted-card); white-space: nowrap; }
+.tabla-reporte th:first-child { border-top-left-radius: var(--r-card); }
+.tabla-reporte th:last-child { border-top-right-radius: var(--r-card); }
+.tabla-reporte td { padding: 12px 10px; font-size: 13px; color: var(--charcoal); }
+.tabla-reporte tbody tr:last-child td { border-bottom: 0; }
+.tabla-reporte tbody tr:hover td { background: var(--paper); }
+.tabla-reporte .der { text-align: right; }
+.tabla-reporte tfoot td { font-weight: 600; background: var(--muted-card); border-top: 1px solid var(--hairline); border-bottom: 0; color: var(--ink); }
+.reporte-lista-movil { display: none; }
+.reporte-lista-movil li { display: grid; gap: 4px; padding: 14px 4px; border-bottom: 1px solid var(--hairline); font-size: 13px; color: var(--charcoal); }
+.reporte-lista-movil li:last-child { border-bottom: 0; }
 @media (max-width: 699px) {
-  .tabla-wrap { display: none; }
+  .tabla-wrap.solo-ancho, #casos-cuerpo .tabla-wrap { display: none; }
+  .reporte-lista-movil { display: block; }
+  .tabla-reporte.chica th:last-child, .tabla-reporte.chica td:last-child { display: none; }
   .casos-lista-movil { display: block; }
   .solo-movil { display: inline-block; }
-  .casos-cab { padding: 16px 16px 8px; }
+  .casos-cab { padding: 12px 16px 8px; flex-direction: column-reverse; align-items: flex-start; gap: 8px; }
   .casos-barra { padding: 0 16px 12px; }
   .casos-cuerpo { padding: 0 16px 16px; }
   .campo-busqueda { max-width: none; }
