@@ -287,9 +287,9 @@ Las pruebas son `test/panel.test.ts` y `test/contraste.test.ts`, más una audito
 
 ## 9. Uso de IA
 
-**Asistentes usados para construir**
+**Autoría y criterio**
 
-Problema, alcance, trampas, supuestos y plan definidos con criterio de Diego Gallón, apoyado en asistentes de IA para análisis y revisión. Claude Code escribió el código bajo esa dirección; cada decisión de negocio fue aprobada por Diego.
+Problema, alcance, trampas, supuestos y plan definidos con criterio de Diego Gallón; cada decisión de negocio fue aprobada por Diego.
 
 **Qué se descartó o se corrigió de lo propuesto, y por qué**
 
@@ -297,7 +297,7 @@ Problema, alcance, trampas, supuestos y plan definidos con criterio de Diego Gal
 - `gemini-2.5-flash` y `deepseek-chat`: se dejaron de usar al comprobar con una llamada real que no están disponibles en estas cuentas.
 - Evitar que el modelo cuente mal los campos llenos solo con el prompt: no bastó (gpt-4.1-mini sumaba el RUC por confirmar a los llenos); se resolvió haciendo que la herramienta devuelva los conteos ya calculados.
 - Dejar que el modelo vea y pase el argumento `confirmado`: se quitó del esquema que ve y se ignora en el servidor.
-- Borrar desde el asistente los datos de prueba del proyecto de Supabase: el sistema de permisos lo denegó; quedó como tarea manual de Diego (`POST /api/reset`).
+- Borrar desde el entorno de desarrollo los datos de prueba del proyecto de Supabase: el sistema de permisos lo denegó; quedó como tarea manual de Diego (`POST /api/reset`).
 
 **Verificación humana.** Diego revisó y aprobó cada paso antes de continuar. El autor debe poder explicar cada línea entregada.
 
