@@ -183,6 +183,8 @@ a.btn { text-decoration: none; }
   .panel-cab-izq { display: flex; }
 }
 
+.titulo-inicio { color: inherit; font: inherit; letter-spacing: inherit; text-decoration: none; cursor: pointer; transition: opacity var(--t) ease-out; }
+.titulo-inicio:hover { opacity: 0.75; }
 .drawer-fondo { position: fixed; inset: 0; background: var(--scrim); z-index: 20; animation: aparecer 160ms ease-out; }
 .drawer-fondo.saliendo { animation: desvanecer 180ms ease-in forwards; }
 

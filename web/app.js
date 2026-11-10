@@ -154,7 +154,21 @@
   $("cerrar-bandeja").addEventListener("click", cerrarBandeja);
   $("abrir-detalle").addEventListener("click", () => abrirDetalle(document.activeElement));
   $("cerrar-detalle").addEventListener("click", cerrarDetalle);
-  $("fondo-paneles").addEventListener("click", () => cerrarOverlayActivo());
+  /** El título del encabezado lleva al inicio (el asistente): cierra la tabla y los drawers; no toca la sesión, la conversación, el caso en foco ni la fecha. */
+  function irAlInicio() {
+    if (estado.hoja.abierta) cerrarHoja(false);
+    if (estado.bandejaAbierta) cerrarBandeja();
+    if (location.hash !== "#/") location.hash = "#/";
+    aplicarRuta();
+  }
+  $("ir-inicio").addEventListener("click", (e) => { e.preventDefault(); irAlInicio(); });
+  $("fondo-paneles").addEventListener("click", (e) => {
+    // Con un drawer abierto el encabezado queda inerte bajo el fondo: un clic sobre el título cuenta como clic en el título.
+    const r = $("ir-inicio").getBoundingClientRect();
+    const sobreTitulo = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    cerrarOverlayActivo();
+    if (sobreTitulo) irAlInicio();
+  });
   document.addEventListener("keydown", (e) => {
     if (!estado.overlay) return;
     if (e.key === "Escape") { e.preventDefault(); cerrarOverlayActivo(); return; }

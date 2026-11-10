@@ -19,7 +19,7 @@ bun run dev              # http://localhost:3000  (front + API)
 
 ## Pantalla
 
-Chat al centro; a la izquierda la bandeja compacta (fecha de referencia; casos y conversaciones al 50% del alto, cada una con su scroll y en dos líneas por ítem; «Ver todos los casos» y el reporte fijos); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). La ruta `#/casos` muestra **«Todos los casos»**: una tabla ordenable con búsqueda por cliente y filtro por estado, y un detalle con pestañas (Campos, Soportes, Decisiones) y «Abrir en el asistente»; con 390 px pasa a filas apiladas. Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
+Chat al centro; a la izquierda la bandeja compacta (fecha de referencia; casos y conversaciones al 50% del alto, cada una con su scroll y en dos líneas por ítem; «Ver todos los casos» y el reporte fijos); a la derecha el detalle plegable del caso (campos con trazabilidad, soportes, «Preparar envío»). La ruta `#/casos` muestra **«Todos los casos»**: una tabla ordenable con búsqueda por cliente y filtro por estado, y un detalle con pestañas (Campos, Soportes, Decisiones) y «Abrir en el asistente»; con 390 px pasa a filas apiladas. El título «Registro como proveedor» del encabezado es un enlace al inicio (`#/`): cierra la tabla y los drawers sin tocar la conversación, el caso en foco ni la fecha. Por debajo de 1280 px el detalle es un drawer sobre el chat y por debajo de 900 px la bandeja también (Esc cierra y devuelve el foco).
 
 ## Sistema visual
 
